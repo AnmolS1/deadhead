@@ -29,3 +29,23 @@ export {
   WORLD_MAX,
   WORLD_MIN,
 } from './constants.js';
+
+export {
+  FX_HALF,
+  FX_ONE,
+  FX_SHIFT,
+  QUARTER_TURN,
+  TURN,
+  fxAbs,
+  fxAtan2,
+  fxClamp,
+  fxCos,
+  fxDiv,
+  fxFloorToInt,
+  fxFromInt,
+  fxFromRatio,
+  fxMul,
+  fxRoundToInt,
+  fxSin,
+  fxSqrt,
+} from './fx.js';
