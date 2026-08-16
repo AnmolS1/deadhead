@@ -1,4 +1,5 @@
 /_to_ignore
 /docs
+.DS_Store
 
 CLAUDE.md
