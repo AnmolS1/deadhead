@@ -2,8 +2,10 @@ name: ci
 
 on:
   pull_request:
+  # `dev` is deliberately not listed. Work lands on `dev` and reaches `prod` by
+  # PR, so a push trigger on `dev` would run the same commit twice.
   push:
-    branches: [prod, dev]
+    branches: [prod]
 
 concurrency:
   group: ci-${{ github.ref }}
