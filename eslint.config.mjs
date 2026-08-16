@@ -2,6 +2,8 @@ import js from '@eslint/js';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
+import { simPurityConfig } from './packages/sim/eslint.purity.mjs';
+
 export default tseslint.config(
   {
     ignores: [
@@ -53,16 +55,9 @@ export default tseslint.config(
     languageOptions: { globals: globals.node },
   },
 
-  // The pure packages. `any` is banned outright here, not merely discouraged —
-  // an `any` in the sim is how a float sneaks into hashed state.
-  //
-  // S-02 layers the real purity gate on top of this block: no-restricted-globals,
-  // no-restricted-properties for Date.now/Math.random/Math.sin/…, and
-  // no-restricted-imports for anything outside @deadhead/sim and @deadhead/proto.
-  {
-    files: ['packages/sim/**/*.ts', 'packages/proto/**/*.ts'],
-    rules: {
-      '@typescript-eslint/no-explicit-any': 'error',
-    },
-  },
+  // The purity gate (S-02). Lives in packages/sim/eslint.config.mjs next to the
+  // code it governs, but must be spread in here: ESLint 9+ flat config does not
+  // cascade into nested config files, so a config sitting there on its own would
+  // never run. Spread LAST so nothing below relaxes it.
+  ...simPurityConfig,
 );

@@ -36,5 +36,11 @@ jobs:
       - name: typecheck
         run: npm run typecheck
 
+      # S-02. Runs after typecheck because it scans dist/, and it self-tests by
+      # feeding ESLint deliberate violations. If this is ever green while the
+      # sim is impure, multiplayer and leaderboards are both silently wrong.
+      - name: sim purity
+        run: npm run lint:sim-purity
+
       - name: test
         run: npm test
