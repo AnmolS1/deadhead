@@ -112,20 +112,27 @@ const FORBIDDEN_PROPERTIES = [
 
 /** Import specifiers the sim may reach for: relative paths, and `@deadhead/proto`. */
 const ALLOWED_SIM_IMPORT = String.raw`^(\.{1,2}\/|@deadhead\/proto$)`;
-/** `packages/proto` has no dependencies at all, so only relative paths. */
-const ALLOWED_PROTO_IMPORT = String.raw`^\.{1,2}\/`;
+const SIM_IMPORT_HELP = 'relative paths and @deadhead/proto';
 
-/** Ban every module specifier that is not on the allow-list, in all three forms. */
-const importRules = (allowed) =>
+/** `packages/proto` sits at the bottom of the graph, so it may import nothing at all. */
+const ALLOWED_PROTO_IMPORT = String.raw`^\.{1,2}\/`;
+const PROTO_IMPORT_HELP = 'relative paths — this package is the bottom of the dependency graph';
+
+/** Ban every module specifier that is not on the allow-list, in all four forms. */
+const importRules = (allowed, help) =>
   [
     ['ImportDeclaration', 'import'],
     ['ExportNamedDeclaration[source]', 'export … from'],
     ['ExportAllDeclaration', 'export * from'],
+    // Dynamic import() is a separate AST node. Without this, `await
+    // import('node:fs')` passes both halves of the gate — the dist scan looks
+    // for `require(` and forbidden globals, not arbitrary bare specifiers.
+    ['ImportExpression[source.type="Literal"]', 'dynamic import()'],
   ].map(([node, label]) => ({
     selector: `${node}[source.value!=/${allowed}/]`,
     message:
       `This package takes no runtime dependencies, so a bare ${label} specifier is not allowed. ` +
-      'Only relative paths and @deadhead/proto. See CLAUDE.md hard invariant #1.',
+      `Only ${help}. See CLAUDE.md hard invariant #1.`,
   }));
 
 /** Ways to reach a banned `Math` member that a property rule cannot see. */
@@ -181,7 +188,11 @@ export const simPurityConfig = [
     },
     rules: {
       ...sharedPurityRules,
-      'no-restricted-syntax': ['error', ...importRules(ALLOWED_SIM_IMPORT), ...MATH_LAUNDERING],
+      'no-restricted-syntax': [
+        'error',
+        ...importRules(ALLOWED_SIM_IMPORT, SIM_IMPORT_HELP),
+        ...MATH_LAUNDERING,
+      ],
     },
   },
   {
@@ -195,7 +206,11 @@ export const simPurityConfig = [
     linterOptions: { noInlineConfig: true },
     rules: {
       ...sharedPurityRules,
-      'no-restricted-syntax': ['error', ...importRules(ALLOWED_PROTO_IMPORT), ...MATH_LAUNDERING],
+      'no-restricted-syntax': [
+        'error',
+        ...importRules(ALLOWED_PROTO_IMPORT, PROTO_IMPORT_HELP),
+        ...MATH_LAUNDERING,
+      ],
     },
   },
 ];

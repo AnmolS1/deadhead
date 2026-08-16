@@ -27,7 +27,7 @@ pass() { printf '%s✓%s %s\n' "$GREEN" "$RESET" "$*"; }
 step() { printf '\n%s%s%s\n' "$DIM" "$*" "$RESET"; }
 
 PURE_PACKAGES=(packages/sim packages/proto)
-PROBE_GLOB='packages/sim/src/__purity_probe_*.ts'
+PROBE_GLOB='packages/sim/src/__purity_probe_*.ts packages/proto/src/__purity_probe_*.ts'
 # shellcheck disable=SC2064
 trap "rm -f ${PROBE_GLOB}" EXIT
 
@@ -44,18 +44,18 @@ LINTED=$(node --input-type=module -e '
   import { loadESLint } from "eslint";
   const ESLint = await loadESLint({ useFlatConfig: true });
   const eslint = new ESLint();
-  const results = await eslint.lintFiles(["packages/sim/src/**/*.ts"]);
+  const results = await eslint.lintFiles(process.argv.slice(1).map((p) => `${p}/src/**/*.ts`));
   const ignored = results.filter((r) =>
     r.messages.some((m) => /no matching configuration/.test(m.message)),
   );
   console.log(JSON.stringify({ total: results.length, ignored: ignored.length }));
-')
+' "${PURE_PACKAGES[@]}")
 total=$(node -e "console.log(JSON.parse(process.argv[1]).total)" "$LINTED")
 ignored=$(node -e "console.log(JSON.parse(process.argv[1]).ignored)" "$LINTED")
 
-[ "$total" -gt 0 ] || fail "ESLint linted 0 files under packages/sim/src — the gate is not running."
-[ "$ignored" -eq 0 ] || fail "$ignored file(s) under packages/sim/src matched no ESLint config. The gate is not covering them."
-pass "ESLint is covering $total source file(s) under packages/sim/src"
+[ "$total" -gt 0 ] || fail "ESLint linted 0 files under the pure packages — the gate is not running."
+[ "$ignored" -eq 0 ] || fail "$ignored source file(s) matched no ESLint config. The gate is not covering them."
+pass "ESLint is covering $total source file(s) across ${PURE_PACKAGES[*]}"
 
 # ---------------------------------------------------------------------------
 step '2/4  the build is clean'
@@ -169,22 +169,35 @@ step '4/4  the gate still bites'
 # One probe per rule family, checked individually. Running them as a single file
 # would let one working rule mask five broken ones.
 
-write_probe() { printf '%s\n' "$2" > "packages/sim/src/__purity_probe_$1.ts"; }
+# $1 package, $2 probe name, $3 source
+write_probe() { printf '%s\n' "$3" > "$1/src/__purity_probe_$2.ts"; }
 
-write_probe random 'export const v = Math.random();'
-write_probe date   'export const v = Date.now();'
-write_probe trig   'export const v = Math.sin(1);'
-write_probe sqrt   'export const v = Math.sqrt(2);'
-write_probe dom    'export const v = typeof window;'
-write_probe import "import { readFileSync } from 'node:fs';
+write_probe packages/sim random  'export const v = Math.random();'
+write_probe packages/sim date    'export const v = Date.now();'
+write_probe packages/sim trig    'export const v = Math.sin(1);'
+write_probe packages/sim sqrt    'export const v = Math.sqrt(2);'
+write_probe packages/sim dom     'export const v = typeof window;'
+write_probe packages/sim any     'export const v: any = 1;'
+write_probe packages/sim import  "import { readFileSync } from 'node:fs';
 export const v = readFileSync;"
-write_probe any    'export const v: any = 1;'
+write_probe packages/sim dynimport "export const v = () => import('node:fs');"
+
+# packages/proto has its own config block with a stricter import allow-list
+# (relative only — it may not even reach for @deadhead/proto). It was previously
+# asserted by nothing, which is the same state packages/sim was in before the
+# ESLint 10 config-lookup problem was found.
+write_probe packages/proto random 'export const v = Math.random();'
+write_probe packages/proto import "import { SIM_VERSION } from '@deadhead/sim';
+export const v = SIM_VERSION;"
 
 node --input-type=module -e '
   import { loadESLint } from "eslint";
   const ESLint = await loadESLint({ useFlatConfig: true });
   const eslint = new ESLint();
-  const results = await eslint.lintFiles(["packages/sim/src/__purity_probe_*.ts"]);
+  const results = await eslint.lintFiles([
+    "packages/sim/src/__purity_probe_*.ts",
+    "packages/proto/src/__purity_probe_*.ts",
+  ]);
 
   const undetected = results
     .filter((r) => r.errorCount === 0)

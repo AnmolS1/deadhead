@@ -98,7 +98,18 @@ export function fxRoundToInt(v: number): number {
  * there is no fixed-point `FIXED_DT` to multiply by.
  */
 export function fxFromRatio(num: number, den: number): number {
-  return fxDiv(fxFromInt(num), fxFromInt(den));
+  // Deliberately NOT `fxDiv(fxFromInt(num), fxFromInt(den))`. That form converts
+  // both arguments to 16.16 first, and `fxFromInt` wraps past ±32_768 — so the
+  // denominator of a small rate silently wrapped to 0 and the whole thing
+  // saturated. `fxFromRatio(1, 65_536)`, the smallest representable rate,
+  // returned INT32_MAX; `fxFromRatio(1, 100_000)` returned -2.
+  //
+  // Scaling only the numerator is exact for |num| < 2^37 and puts no bound on
+  // the denominator at all, which is what a tuning-constant helper needs.
+  if (den === 0) return num < 0 ? INT32_MIN : INT32_MAX;
+
+  const scaled = num * FX_ONE;
+  return ((scaled - (scaled % den)) / den) | 0;
 }
 
 // ---------------------------------------------------------------------------

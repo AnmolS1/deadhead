@@ -72,6 +72,22 @@ describe('conversion round-trips', () => {
     // 24 units/second at 30 Hz, the per-tick form described in constants.ts.
     expect(fxFromRatio(24, 30)).toBe(Math.floor(0.8 * FX_ONE));
   });
+
+  it('handles rates far outside the 16.16 storage range', () => {
+    // Regression. The original implementation converted both arguments with
+    // fxFromInt first, which wraps past ±32_768: the denominator of a small
+    // rate wrapped to 0 and the result saturated. Asking for the smallest
+    // representable rate returned the largest possible value.
+    expect(fxFromRatio(1, 65_536)).toBe(1);
+    expect(fxFromRatio(1, 100_000)).toBe(0);
+    expect(fxFromRatio(1, 1_000_000)).toBe(0);
+    expect(fxFromRatio(1_000_000, 1_000)).toBe(fxFromInt(1_000));
+    expect(fxFromRatio(-1, 65_536)).toBe(-1);
+
+    // A rate is never NaN or Infinity, for the same reason fxDiv saturates.
+    expect(fxFromRatio(1, 0)).toBe(0x7fffffff);
+    expect(fxFromRatio(-1, 0)).toBe(-0x80000000);
+  });
 });
 
 describe('fxMul', () => {
