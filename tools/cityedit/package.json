@@ -1,0 +1,14 @@
+{
+  "name": "@deadhead/cityedit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "In-browser city authoring tool. Reuses the game renderer, exports JSON.",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deadhead/proto": "*"
+  }
+}

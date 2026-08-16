@@ -1,0 +1,14 @@
+{
+  // Tests are type-checked but never emitted, so they stay out of the composite
+  // build graph while still failing `npm run typecheck` when they are wrong.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "emitDeclarationOnly": false,
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

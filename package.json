@@ -1,0 +1,39 @@
+{
+  "name": "deadhead",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A browser arcade taxi game with a deterministic simulation core.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AnmolS1/deadhead.git"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "tools/*"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean",
+    "typecheck": "tsc --build",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "npm run test --workspaces --if-present",
+    "check:all": "npm run format:check && npm run lint && npm run typecheck && npm run test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.8.1",
+    "globals": "^17.11.0",
+    "prettier": "^3.9.6",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.67.0",
+    "vitest": "^4.1.10"
+  },
+  "//typescript": "Pinned to 5.9 deliberately. TypeScript 7 (the native port) is `latest`, but typescript-eslint 8.x peers on typescript <6.1.0, and the ESLint layer is what enforces the S-02 sim purity gate. Upgrade when typescript-eslint supports 7.x."
+}
