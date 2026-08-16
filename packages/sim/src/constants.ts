@@ -70,12 +70,23 @@ export const SIM_VERSION = 0;
 //
 // `S-03` implements the arithmetic and restates this in `fx.ts`.
 
-/** Largest magnitude representable in 16.16. See STORAGE BOUND above. */
-export const FX_MAX_MAGNITUDE = 32_768;
+/**
+ * **Exclusive** bound on magnitude in 16.16. See STORAGE BOUND above.
+ *
+ * Note the name says `LIMIT`, not `MAX`, because 32_768 is *not* attainable:
+ * `32_768 * 2^16` is exactly `2^31`, which overflows int32. The largest
+ * representable positive value is one ULP below, 32_767.99998…. Compare with
+ * `<`, never `<=`.
+ */
+export const FX_MAGNITUDE_LIMIT = 32_768;
 
 /**
- * Largest operand that may be squared in 16.16 without overflow. See ARITHMETIC
- * BOUND above. Always apply this to a *relative offset*.
+ * **Inclusive** bound on an operand that may be squared in 16.16 without
+ * overflow — 181 itself is fine, 182 is not. See ARITHMETIC BOUND above.
+ *
+ * The asymmetry with {@link FX_MAGNITUDE_LIMIT} is deliberate and is why the
+ * names differ: `MAX` is attainable, `LIMIT` is not. Always apply this to a
+ * *relative offset*, never to an absolute coordinate.
  */
 export const FX_MAX_SQUARABLE = 181;
 

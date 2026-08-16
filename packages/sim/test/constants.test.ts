@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  FX_MAX_MAGNITUDE,
+  FX_MAGNITUDE_LIMIT,
   FX_MAX_SQUARABLE,
   TICK_HZ,
   TICK_INTERVAL_US,
@@ -23,8 +23,12 @@ const FX_ONE = 2 ** FX_SHIFT;
 const INT32_LIMIT = 2 ** 31;
 
 describe('16.16 precision envelope', () => {
-  it('FX_MAX_MAGNITUDE is the largest value representable at scale 2^16', () => {
-    expect(FX_MAX_MAGNITUDE * FX_ONE).toBe(INT32_LIMIT);
+  it('FX_MAGNITUDE_LIMIT is exclusive — the limit itself does not fit', () => {
+    // 32768 * 2^16 is exactly 2^31, one past the largest positive int32. So the
+    // limit is not an attainable magnitude, which is why it is named LIMIT and
+    // why callers must compare with `<` rather than `<=`.
+    expect(FX_MAGNITUDE_LIMIT * FX_ONE).toBe(INT32_LIMIT);
+    expect((FX_MAGNITUDE_LIMIT - 1) * FX_ONE).toBeLessThan(INT32_LIMIT);
   });
 
   it('FX_MAX_SQUARABLE is the largest operand whose square survives fxMul', () => {
@@ -38,13 +42,13 @@ describe('16.16 precision envelope', () => {
   it('the arithmetic bound is far tighter than the storage bound', () => {
     // The whole point of the warning in constants.ts. If these ever converge,
     // something has changed about the scale and S-07 needs re-reading.
-    expect(FX_MAX_SQUARABLE).toBeLessThan(FX_MAX_MAGNITUDE);
+    expect(FX_MAX_SQUARABLE).toBeLessThan(FX_MAGNITUDE_LIMIT);
   });
 });
 
 describe('world bounds', () => {
   it('fits inside the storage bound with room for intermediates', () => {
-    expect(WORLD_HALF_EXTENT).toBeLessThan(FX_MAX_MAGNITUDE);
+    expect(WORLD_HALF_EXTENT).toBeLessThan(FX_MAGNITUDE_LIMIT);
     expect(WORLD_HALF_EXTENT * FX_ONE).toBeLessThan(INT32_LIMIT);
   });
 

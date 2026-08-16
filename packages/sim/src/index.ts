@@ -20,7 +20,7 @@ export { createWorld, step } from './step.js';
 export type { Inputs, PackedInput, PlayerId, World } from './types.js';
 
 export {
-  FX_MAX_MAGNITUDE,
+  FX_MAGNITUDE_LIMIT,
   FX_MAX_SQUARABLE,
   SIM_VERSION,
   TICK_HZ,
