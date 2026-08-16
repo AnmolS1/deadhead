@@ -25,6 +25,20 @@ export default tseslint.config(
       ecmaVersion: 2022,
       sourceType: 'module',
     },
+    rules: {
+      // Match tsconfig's noUnusedLocals/noUnusedParameters, which already treat
+      // a leading underscore as "declared on purpose, not read yet". Without
+      // this the two tools disagree and `_inputs` fails lint while passing
+      // typecheck.
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
+    },
   },
 
   // Browser-side packages.
