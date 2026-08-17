@@ -102,3 +102,13 @@ export type { World } from './world.js';
 export { CarTuning, carSpeed, carSpeedFraction, carVelocityAngle } from './car.js';
 
 export { ClockTuning, beginFare, endFare, grantDeadhead, isCarrying, isDriving } from './clock.js';
+
+export {
+  boxesFromUnits,
+  buildStaticGeometry,
+  emptyGeometry,
+  overlapsStatic,
+  sweepCar,
+} from './collide.js';
+
+export type { CollisionResult, StaticGeometry } from './collide.js';

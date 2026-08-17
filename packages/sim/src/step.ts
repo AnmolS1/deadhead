@@ -7,8 +7,18 @@
  */
 import { stepCar } from './car.js';
 import { stepClocks, stepRunEnd } from './clock.js';
+import { sweepCar } from './collide.js';
 import type { Inputs } from './types.js';
-import { Car, Header, cloneWorld, getPlayerCount, getTick, setCar, type World } from './world.js';
+import {
+  Car,
+  Header,
+  cloneWorld,
+  getCar,
+  getPlayerCount,
+  getTick,
+  setCar,
+  type World,
+} from './world.js';
 
 /**
  * Advance the world by exactly one tick.
@@ -43,7 +53,13 @@ export function step(world: World, inputs: Inputs): World {
   // matter. It will matter the moment S-08 collision or S-09 contested pickup
   // land, and both are specified to resolve by slot order deterministically.
   for (let slot = 0; slot < players; slot += 1) {
+    const fromX = getCar(next, slot, Car.X);
+    const fromY = getCar(next, slot, Car.Y);
     stepCar(next, slot);
+    // Collision runs per cab, immediately after that cab moves, so the sweep
+    // sees the movement it is resolving. There is no car-car collision in v1
+    // (DESIGN.md §2.3), so slot order still cannot matter.
+    if (next.statics !== undefined) sweepCar(next, slot, next.statics, fromX, fromY);
   }
 
   // S-09's passenger pickup and drop-off resolution slots in HERE, between

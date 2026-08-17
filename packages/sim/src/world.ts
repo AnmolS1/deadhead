@@ -46,6 +46,7 @@
 import { WORLD_FORMAT_VERSION } from '@deadhead/proto';
 
 import { initClocks } from './clock.js';
+import type { StaticGeometry } from './collide.js';
 import { RNG_LANES, rngIsDegenerate, rngSeed, type RngState } from './rng.js';
 
 // ---------------------------------------------------------------------------
@@ -156,6 +157,11 @@ export const CarFlags = {
    * driving" is only a win condition if nobody can come back.
    */
   Eliminated: 1 << 1,
+  /**
+   * Set on a hard impact with the city. `G-01` consumes and clears it, turning
+   * it into a respawn and a deadhead penalty. Set by `S-07`.
+   */
+  Crashed: 1 << 2,
 } as const;
 
 /**
@@ -230,10 +236,26 @@ export interface World {
    * Always a full array, never a subarray — {@link cloneWorld} relies on that.
    */
   readonly data: Int32Array;
+
+  /**
+   * Static city collision geometry (`S-07`), or `undefined` for an empty world.
+   *
+   * An **input**, not state: it never changes during a run, so it is shared by
+   * reference across every copy and is deliberately **not serialised and not
+   * hashed** (ADR 0004). {@link deserialize} therefore cannot restore it — the
+   * caller reattaches it, and {@link Header.CityHash} is what lets them check
+   * they reattached the right one.
+   */
+  readonly statics?: StaticGeometry | undefined;
 }
 
 /** A fresh world at tick 0. */
-export function createWorld(seed: number, playerCount = 1, cityHash = 0): World {
+export function createWorld(
+  seed: number,
+  playerCount = 1,
+  cityHash = 0,
+  statics?: StaticGeometry,
+): World {
   const data = new Int32Array(WORLD_INT32S);
 
   data[Header.FormatVersion] = WORLD_FORMAT_VERSION;
@@ -243,7 +265,7 @@ export function createWorld(seed: number, playerCount = 1, cityHash = 0): World 
   data[Header.PlayerCount] = Math.max(1, Math.min(playerCount, MAX_PLAYERS));
   data[Header.Flags] = WorldFlags.Running;
 
-  const world: World = { data };
+  const world: World = { data, statics };
   rngSeed(rngOf(world), seed);
 
   for (let slot = 0; slot < MAX_PLAYERS; slot += 1) {
@@ -261,7 +283,9 @@ export function createWorld(seed: number, playerCount = 1, cityHash = 0): World 
  * above all — still points at the *original* and must be re-derived.
  */
 export function cloneWorld(world: World): World {
-  return { data: new Int32Array(world.data) };
+  // `statics` is carried by reference on purpose: it is immutable input, and
+  // copying a city's worth of geometry 30 times a second would be absurd.
+  return { data: new Int32Array(world.data), statics: world.statics };
 }
 
 // ---------------------------------------------------------------------------
