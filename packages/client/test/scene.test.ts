@@ -97,7 +97,8 @@ describe('cars', () => {
 
   it('keeps a cab straddling the edge, and drops it exactly one margin out', () => {
     // Both sides of the boundary, because only the pair pins it. The view ends
-    // at x=50 and CullMargins.cars is 3, so 53 is the last cab drawn and 54 is
+    // at x=50 and CullMargins.cars is 1.5 — the cab's half-diagonal, read from
+    // CarTuning rather than estimated — so 51 is the last cab drawn and 52 is
     // the first culled.
     //
     // The first version of this test probed x=52 alone and asserted only that
@@ -111,8 +112,8 @@ describe('cars', () => {
       return visibleCars(world, world, view(), 0, emptyFrameStats().cars).length;
     };
 
-    expect(drawnAt(53)).toBe(1);
-    expect(drawnAt(54)).toBe(0);
+    expect(drawnAt(51)).toBe(1);
+    expect(drawnAt(52)).toBe(0);
   });
 
   it('never considers an eliminated cab', () => {
