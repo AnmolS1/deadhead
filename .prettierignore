@@ -11,3 +11,9 @@ docs
 CLAUDE.md
 
 .remember
+
+# Recorded golden data. These files are generated deliberately and compared
+# byte-for-byte; a formatter must never rewrite them. See the S-14 note in
+# TASKS.md on never editing a golden to make a test pass.
+**/test/fixtures/
+**/test/golden/

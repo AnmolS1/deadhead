@@ -49,3 +49,17 @@ export {
   fxSin,
   fxSqrt,
 } from './fx.js';
+
+export {
+  RNG_LANES,
+  rngCreate,
+  rngIsDegenerate,
+  rngNextBelow,
+  rngNextRange,
+  rngNextU32,
+  rngPick,
+  rngPickIndex,
+  rngSeed,
+} from './rng.js';
+
+export type { RngState } from './rng.js';
