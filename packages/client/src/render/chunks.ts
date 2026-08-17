@@ -49,37 +49,40 @@
 import { type Bounds } from './viewport.js';
 
 /**
- * The bit of a canvas this module needs.
+ * Creates a backing surface for one chunk. `OffscreenCanvas` in the browser.
  *
- * Narrowed to an interface, rather than taking `HTMLCanvasElement`, so the
- * cache is testable in node without a DOM — the eviction policy is the part
- * most worth testing and it has nothing to do with pixels.
+ * The surface type is a **parameter**, not a fixed interface. The first draft
+ * narrowed it to `{ width, height }` "for testability" and every test passed —
+ * because the fake only ever needed those two fields. But a type narrowed past
+ * what real code requires is one production can never use: `{ width, height }`
+ * has no `getContext`, so nothing can paint into it, and it is not a
+ * `CanvasImageSource`, so `drawImage` rejects it. The tests were green against
+ * a shape the game could not have used.
+ *
+ * Making it generic fixes both ends without a cast at either. The cache never
+ * touches the surface — it computes chunk dimensions itself — so `TSurface` is
+ * unconstrained: the browser instantiates with `OffscreenCanvas` and gets a
+ * fully typed blit, tests instantiate with a double.
  */
-export interface ChunkSurface {
-  readonly width: number;
-  readonly height: number;
-}
-
-/** Creates a backing surface for one chunk. `OffscreenCanvas` in the browser. */
-export type SurfaceFactory = (width: number, height: number) => ChunkSurface;
+export type SurfaceFactory<TSurface> = (width: number, height: number) => TSurface;
 
 /** Draws the static ground for one chunk. Called once per chunk, on a miss. */
-export type ChunkPainter = (
-  surface: ChunkSurface,
+export type ChunkPainter<TSurface> = (
+  surface: TSurface,
   bounds: Bounds,
   chunkX: number,
   chunkY: number,
 ) => void;
 
-export interface GroundCacheOptions {
+export interface GroundCacheOptions<TSurface> {
   /** Side of one chunk, in world units. */
   readonly chunkUnits: number;
   /** Device pixels per world unit, at zoom 1. */
   readonly pixelsPerUnit: number;
   /** Soft ceiling on total cached bitmap bytes. */
   readonly budgetBytes: number;
-  readonly createSurface: SurfaceFactory;
-  readonly paint: ChunkPainter;
+  readonly createSurface: SurfaceFactory<TSurface>;
+  readonly paint: ChunkPainter<TSurface>;
 }
 
 export interface CacheStats {
@@ -106,8 +109,8 @@ function chunkKey(chunkX: number, chunkY: number): number {
   return ((chunkX & 0xffff) << 16) | (chunkY & 0xffff);
 }
 
-interface CachedChunk {
-  readonly surface: ChunkSurface;
+interface CachedChunk<TSurface> {
+  readonly surface: TSurface;
   readonly bytes: number;
   /** The frame this was last used on, for the do-not-evict rule. */
   touchedFrame: number;
@@ -119,10 +122,10 @@ interface CachedChunk {
  * Usage per frame: call {@link beginFrame}, then {@link acquire} for every
  * chunk {@link chunksIn} reports as visible, then {@link endFrame}.
  */
-export class GroundCache {
-  private readonly options: GroundCacheOptions;
+export class GroundCache<TSurface> {
+  private readonly options: GroundCacheOptions<TSurface>;
   /** Insertion-ordered, which is what makes it an LRU: re-inserting moves to the end. */
-  private readonly chunks = new Map<number, CachedChunk>();
+  private readonly chunks = new Map<number, CachedChunk<TSurface>>();
 
   private heldBytes = 0;
   private frame = 0;
@@ -131,7 +134,7 @@ export class GroundCache {
   private evictions = 0;
   private wentOverBudget = false;
 
-  constructor(options: GroundCacheOptions) {
+  constructor(options: GroundCacheOptions<TSurface>) {
     if (options.chunkUnits <= 0) throw new RangeError('chunkUnits must be positive');
     if (options.pixelsPerUnit <= 0) throw new RangeError('pixelsPerUnit must be positive');
     this.options = options;
@@ -204,7 +207,7 @@ export class GroundCache {
    * Touching a chunk marks it un-evictable for the rest of the frame, which is
    * what stops the cache from evicting something it is about to ask for again.
    */
-  acquire(chunkX: number, chunkY: number): ChunkSurface {
+  acquire(chunkX: number, chunkY: number): TSurface {
     const key = chunkKey(chunkX, chunkY);
     const existing = this.chunks.get(key);
 
@@ -222,7 +225,11 @@ export class GroundCache {
     const surface = this.options.createSurface(side, side);
     this.options.paint(surface, this.boundsOf(chunkX, chunkY), chunkX, chunkY);
 
-    const entry: CachedChunk = { surface, bytes: this.bytesPerChunk, touchedFrame: this.frame };
+    const entry: CachedChunk<TSurface> = {
+      surface,
+      bytes: this.bytesPerChunk,
+      touchedFrame: this.frame,
+    };
     this.chunks.set(key, entry);
     this.heldBytes += entry.bytes;
 
@@ -270,11 +277,22 @@ export class GroundCache {
  * A budget that fits the screen, with room for rotation and chunk overhang.
  *
  * The derivation, so it is not a magic number: a full screen of ground at the
- * widest zoom needs `width × height ÷ zoom²` pixels; a rotated view's
- * axis-aligned cover is up to √2 larger on each axis but chunk-level culling
- * recovers most of that, so 1.6× is the measured-ish middle rather than the 2×
- * worst case; and one extra chunk of overhang on each side is already inside
- * that factor.
+ * widest zoom needs `width × height ÷ zoom²` pixels, and a rotated view's
+ * axis-aligned cover is up to 2× that in area at 45°.
+ *
+ * **The factor is the full 2×, not a discounted one.** An earlier version used
+ * 1.6 and justified it as "chunk-level culling recovers most of the rotation
+ * slop" — but {@link GroundCache.chunksIn} floor-divides the AABB and yields
+ * every chunk in that rectangle, with no per-chunk test against the rotated
+ * quad. The mitigation did not exist. Under-provisioning by ~30% at worst
+ * rotation would surface as `overBudget` on real hardware for no visible
+ * reason, and a comment asserting a mitigation the code lacks is exactly the
+ * defect that made `C-03` and `C-04` disagree about rotation in the first
+ * place.
+ *
+ * If per-chunk quad culling is added later (a SAT test against the four view
+ * corners, using the already-exported `overlaps` and a quad from the viewport),
+ * this factor can come back down — and only then.
  */
 export function suggestedBudgetBytes(
   screenWidth: number,
@@ -282,5 +300,5 @@ export function suggestedBudgetBytes(
   minZoom = 0.78,
 ): number {
   const pixels = (screenWidth * screenHeight) / (minZoom * minZoom);
-  return Math.ceil(pixels * 1.6 * 4);
+  return Math.ceil(pixels * 2 * 4);
 }
