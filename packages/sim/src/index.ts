@@ -97,3 +97,5 @@ export {
 } from './world.js';
 
 export type { World } from './world.js';
+
+export { CarFlags, CarTuning, carSpeed, carSpeedFraction, carVelocityAngle } from './car.js';

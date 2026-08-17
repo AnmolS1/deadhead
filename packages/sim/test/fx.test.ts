@@ -40,9 +40,14 @@ function* prng(seed: number): Generator<number> {
 
 const isInt32 = (v: number): boolean => Object.is(v, v | 0);
 
-/** Exact 16.16 multiply via BigInt, truncating toward negative infinity and wrapping. */
+/**
+ * Exact 16.16 multiply via BigInt, truncating toward zero and wrapping.
+ *
+ * `/` on BigInt truncates toward zero, where `>>` would floor. That difference
+ * is the whole point of the rounding mode fxMul uses — see its doc comment.
+ */
 const refMul = (a: number, b: number): number =>
-  Number(BigInt.asIntN(32, (BigInt(a) * BigInt(b)) >> BigInt(FX_SHIFT)));
+  Number(BigInt.asIntN(32, (BigInt(a) * BigInt(b)) / (1n << BigInt(FX_SHIFT))));
 
 const toFloat = (v: number): number => v / FX_ONE;
 const angleToRadians = (a: number): number => (a / TURN) * 2 * Math.PI;
@@ -123,11 +128,27 @@ describe('fxMul', () => {
     // same way, so the assertion compares two wrapped values and passes for the
     // wrong reason.
     const over = fxFromInt(FX_MAX_SQUARABLE + 1);
-    const exact = (BigInt(over) * BigInt(over)) >> BigInt(FX_SHIFT);
+    const exact = (BigInt(over) * BigInt(over)) / (1n << BigInt(FX_SHIFT));
 
     expect(exact).toBeGreaterThan(2n ** 31n - 1n);
     expect(BigInt(fxMul(over, over))).not.toBe(exact);
     expect(fxMul(over, over)).toBe(refMul(over, over));
+  });
+
+  it('is exactly odd, so mirrored inputs give mirrored results', () => {
+    // fxMul(-a, b) === -fxMul(a, b), to the unit. A floor-truncating multiply
+    // is off by one here, and that one unit compounds through car.ts into a
+    // cab that corners 8.5% harder one way than the other.
+    const rng = prng(0x5ade_1234);
+    for (let i = 0; i < 20_000; i += 1) {
+      const a = rng.next().value;
+      const b = rng.next().value;
+      if (a === -0x80000000 || b === -0x80000000) continue;
+
+      expect(fxMul(-a, b)).toBe(-fxMul(a, b) | 0);
+      expect(fxMul(a, -b)).toBe(-fxMul(a, b) | 0);
+      expect(fxMul(-a, -b)).toBe(fxMul(a, b));
+    }
   });
 
   it('handles identities and signs', () => {
@@ -401,7 +422,7 @@ describe('the precision envelope holds', () => {
 
     // The warning in constants.ts, demonstrated rather than asserted in prose:
     // the coordinate stores fine, and squaring it does not.
-    const exact = (BigInt(corner) * BigInt(corner)) >> BigInt(FX_SHIFT);
+    const exact = (BigInt(corner) * BigInt(corner)) / (1n << BigInt(FX_SHIFT));
     expect(exact).toBeGreaterThan(2n ** 31n - 1n);
     expect(BigInt(fxMul(corner, corner))).not.toBe(exact);
   });

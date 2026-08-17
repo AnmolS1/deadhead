@@ -16,3 +16,16 @@ export {
   NET_FORMAT_VERSION,
   WORLD_FORMAT_VERSION,
 } from './format.js';
+
+export {
+  INPUT_MASK,
+  Input,
+  MAX_INPUT_LOG_BYTES,
+  MAX_INPUT_LOG_TICKS,
+  decodeInputLog,
+  encodeInputLog,
+  hasInput,
+  packInput,
+} from './input.js';
+
+export type { InputLog } from './input.js';

@@ -79,7 +79,7 @@ export function fxFromInt(n: number): number {
   return (n << FX_SHIFT) | 0;
 }
 
-/** 16.16 → whole number, rounding toward negative infinity. */
+/** 16.16 → whole number, rounding toward negative infinity (this one really is `>>`). */
 export function fxFloorToInt(v: number): number {
   return v >> FX_SHIFT;
 }
@@ -117,7 +117,7 @@ export function fxFromRatio(num: number, den: number): number {
 // ---------------------------------------------------------------------------
 
 /**
- * 16.16 multiply, truncating toward negative infinity, wrapping on overflow.
+ * 16.16 multiply, **truncating toward zero**, wrapping on overflow.
  *
  * The 64-bit product is assembled from four 16x16 partial products so that no
  * intermediate exceeds what `Math.imul` computes exactly:
@@ -129,6 +129,24 @@ export function fxFromRatio(num: number, den: number): number {
  *
  * `al` and `bl` are taken as unsigned so `al·bl` stays below 2^32 and the
  * logical shift recovers its high half without sign contamination.
+ *
+ * ## Why toward zero, and not the free `>> 16`
+ *
+ * An arithmetic shift floors, so a plain `>> 16` gives
+ * `fxMul(-a, b) === -fxMul(a, b) - 1`. One unit in the last place, and it does
+ * not stay there: in `car.ts` the multiply sits inside a decompose → steer →
+ * recompose loop that runs ten times a tick, and the bias compounds into a car
+ * that **corners 8.5% harder turning right than turning left**. Measured, not
+ * theorised — a mirrored-input test is what surfaced it.
+ *
+ * Truncating toward zero makes the operation exactly odd — `fxMul(-a, b)` is
+ * precisely `-fxMul(a, b)` — so mirrored inputs produce mirrored worlds to the
+ * unit. It also makes this module internally consistent: {@link fxDiv} already
+ * truncates toward zero, because JavaScript's `%` does.
+ *
+ * The correction costs one comparison. The discarded fraction is exactly the
+ * low 16 bits of `al·bl`, since every other partial product contributes at bit
+ * 16 or above.
  */
 export function fxMul(a: number, b: number): number {
   const ah = a >> FX_SHIFT;
@@ -136,13 +154,20 @@ export function fxMul(a: number, b: number): number {
   const bh = b >> FX_SHIFT;
   const bl = b & 0xffff;
 
-  return (
-    ((Math.imul(ah, bh) << FX_SHIFT) +
-      Math.imul(ah, bl) +
-      Math.imul(al, bh) +
-      (Math.imul(al, bl) >>> FX_SHIFT)) |
-    0
-  );
+  const low = Math.imul(al, bl);
+  const floored =
+    ((Math.imul(ah, bh) << FX_SHIFT) + Math.imul(ah, bl) + Math.imul(al, bh) + (low >>> FX_SHIFT)) |
+    0;
+
+  // Round the floor result back up toward zero when the product was negative
+  // and something was actually discarded.
+  //
+  // The sign comes from the operands, not from `floored`. Past the arithmetic
+  // bound the result wraps, so a positive product can land on a negative int32
+  // and vice versa — keying the correction off the wrapped sign gets those
+  // cases backwards. `(a ^ b) < 0` is true exactly when the sign bits differ;
+  // if either operand is zero the product is zero and nothing was discarded.
+  return (a ^ b) < 0 && (low & 0xffff) !== 0 ? (floored + 1) | 0 : floored;
 }
 
 /**
