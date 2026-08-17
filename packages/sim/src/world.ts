@@ -45,6 +45,7 @@
  */
 import { WORLD_FORMAT_VERSION } from '@deadhead/proto';
 
+import { initClocks } from './clock.js';
 import { RNG_LANES, rngIsDegenerate, rngSeed, type RngState } from './rng.js';
 
 // ---------------------------------------------------------------------------
@@ -140,6 +141,24 @@ const CAR_STRIDE = 16;
 export const NO_PASSENGER = -1;
 
 /**
+ * Per-cab bit flags stored in {@link Car.Flags}.
+ *
+ * Lives here rather than in `car.ts` because it is state layout: `car.ts` sets
+ * {@link CarFlags.Drifting} and `clock.ts` sets {@link CarFlags.Eliminated}, and
+ * neither owns the field.
+ */
+export const CarFlags = {
+  /** Set while the cab is sliding hard enough to read as a drift. Drives `C-08`'s feedback. */
+  Drifting: 1 << 0,
+  /**
+   * Set when this cab's deadhead clock reached zero. **Final** — `grantDeadhead`
+   * refuses to revive an eliminated cab, because `M-09`'s "last one still
+   * driving" is only a win condition if nobody can come back.
+   */
+  Eliminated: 1 << 1,
+} as const;
+
+/**
  * Fields of one passenger.
  *
  * **Only the first three slots are defined.** The class (`Meter` | `Rush`),
@@ -230,6 +249,7 @@ export function createWorld(seed: number, playerCount = 1, cityHash = 0): World 
   for (let slot = 0; slot < MAX_PLAYERS; slot += 1) {
     setCar(world, slot, Car.CarriedPassenger, NO_PASSENGER);
   }
+  initClocks(world);
 
   return world;
 }

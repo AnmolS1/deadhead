@@ -6,6 +6,7 @@
  * in that order.
  */
 import { stepCar } from './car.js';
+import { stepClocks, stepRunEnd } from './clock.js';
 import type { Inputs } from './types.js';
 import { Car, Header, cloneWorld, getPlayerCount, getTick, setCar, type World } from './world.js';
 
@@ -44,6 +45,18 @@ export function step(world: World, inputs: Inputs): World {
   for (let slot = 0; slot < players; slot += 1) {
     stepCar(next, slot);
   }
+
+  // S-09's passenger pickup and drop-off resolution slots in HERE, between
+  // movement and the clocks.
+
+  // Clocks run last, on purpose. The rule in clock.ts is written in terms of
+  // end-of-tick state — "the deadhead clock decrements iff the cab is empty at
+  // the end of the tick" — which is what keeps the pickup-tick semantics stable
+  // when S-09 inserts itself above.
+  for (let slot = 0; slot < players; slot += 1) {
+    stepClocks(next, slot);
+  }
+  stepRunEnd(next);
 
   return next;
 }

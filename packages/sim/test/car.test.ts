@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import { Input, packInput } from '@deadhead/proto';
 
-import { CarFlags, CarTuning, carSpeed, carVelocityAngle } from '../src/car.js';
+import { CarTuning, carSpeed, carVelocityAngle } from '../src/car.js';
 import { FX_ONE, TURN, fxAbs } from '../src/fx.js';
 import { WORLD_MAX, WORLD_MIN } from '../src/constants.js';
-import { Car, createWorld, getCar, hashWorld, type World } from '../src/world.js';
+import { Car, CarFlags, createWorld, getCar, hashWorld, type World } from '../src/world.js';
 import { step } from '../src/step.js';
 
 const THROTTLE = packInput(Input.Throttle);

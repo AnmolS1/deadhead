@@ -52,7 +52,7 @@ import {
   fxSqrt,
 } from './fx.js';
 import { WORLD_MAX, WORLD_MIN } from './constants.js';
-import { Car, getCar, setCar, type World } from './world.js';
+import { Car, CarFlags, getCar, setCar, type World } from './world.js';
 
 /**
  * The tuning table. Every constant the feel depends on, in one exported object
@@ -107,12 +107,6 @@ export const CarTuning = {
 
   /** Below this, the car is snapped to rest so it cannot creep. */
   restSpeed: fxFromRatio(1, 30 * 8),
-} as const;
-
-/** Per-car bit flags stored in {@link Car.Flags}. */
-export const CarFlags = {
-  /** Set while the lateral component is large enough to read as a slide. Drives `C-08`'s feedback. */
-  Drifting: 1 << 0,
 } as const;
 
 /** Lateral speed, in units/tick, above which {@link CarFlags.Drifting} is set. */
