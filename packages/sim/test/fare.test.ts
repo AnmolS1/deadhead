@@ -313,6 +313,75 @@ describe('drop-off', () => {
   });
 });
 
+describe('the order of a tick', () => {
+  it('lets a cab collect a passenger on the very tick they appear', () => {
+    // Pins the step order that three files' comments assert and nothing
+    // previously enforced: passengers must spawn BEFORE fares resolve. Move
+    // stepFares above stepPassengers and this fails, because the passenger does
+    // not exist yet when the pickup runs.
+    const kerb = prepareCity(
+      packCity({
+        ...emptyCityJson('kerb'),
+        spawns: [{ x: 0, y: 0 }],
+        destinations: [{ x: 60, y: 0 }],
+        demandAnchors: [{ x: 0, y: 0, radius: 40, phase: 0 }],
+      }),
+    );
+
+    // A cab parked exactly on the kerb, so the only question is ordering.
+    let world = createWorld(0x0dd, 1, kerb);
+    let collectedOnSpawnTick = false;
+
+    for (let tick = 0; tick < 400; tick += 1) {
+      const countBefore = passengerCount(world);
+      // Both conditions matter. Without `emptyBefore` this counts any tick on
+      // which someone spawned while the cab happened to already be carrying,
+      // which is true under either ordering — the first version of this test
+      // passed with the steps deliberately swapped.
+      const emptyBefore = getCar(world, 0, Car.CarriedPassenger) === NO_PASSENGER;
+
+      world = step(world, [0]);
+
+      const spawnedThisTick = passengerCount(world) > countBefore;
+      const carryingNow = getCar(world, 0, Car.CarriedPassenger) !== NO_PASSENGER;
+      if (spawnedThisTick && emptyBefore && carryingNow) {
+        collectedOnSpawnTick = true;
+        break;
+      }
+    }
+
+    expect(collectedOnSpawnTick).toBe(true);
+  });
+
+  it('does not burn deadhead on that same tick', () => {
+    // And the other half of the ordering: clocks run last, so the cab is
+    // already carrying when the deadhead clock decides whether to move. This is
+    // the S-11 tick rule observed through two subsystems that did not exist
+    // when it was written.
+    const kerb = prepareCity(
+      packCity({
+        ...emptyCityJson('kerb'),
+        spawns: [{ x: 0, y: 0 }],
+        destinations: [{ x: 60, y: 0 }],
+        demandAnchors: [{ x: 0, y: 0, radius: 40, phase: 0 }],
+      }),
+    );
+
+    let world = createWorld(0x0dd, 1, kerb);
+    for (let tick = 0; tick < 400; tick += 1) {
+      const bankBefore = getCar(world, 0, Car.DeadheadTicks);
+      const emptyBefore = getCar(world, 0, Car.CarriedPassenger) === NO_PASSENGER;
+      world = step(world, [0]);
+
+      if (emptyBefore && getCar(world, 0, Car.CarriedPassenger) !== NO_PASSENGER) {
+        expect(getCar(world, 0, Car.DeadheadTicks)).toBe(bankBefore);
+        return;
+      }
+    }
+    throw new Error('no pickup happened, so the assertion never ran');
+  });
+});
+
 describe('the whole loop', () => {
   it('spawns, collects, carries and pays — with the clock frozen throughout', () => {
     // The game, in one test. Every subsystem from S-04 through S-11 has to
