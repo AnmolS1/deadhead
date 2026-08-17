@@ -28,6 +28,13 @@ import {
 } from '@deadhead/sim';
 
 import { getContext, resizeCanvas, type Viewport } from './canvas.js';
+import {
+  InputBuffer,
+  attachKeyboard,
+  attachTouch,
+  loadBindings,
+  pollGamepad,
+} from './input/index.js';
 import { FixedTimestepLoop } from './loop.js';
 
 /** Everything a running game needs. `G-01` gives this a real lifecycle. */
@@ -37,7 +44,7 @@ interface Session {
   /** State one tick earlier, for `C-05` to interpolate against. */
   previous: World;
   readonly loop: FixedTimestepLoop;
-  input: number;
+  readonly input: InputBuffer;
 }
 
 function start(canvas: HTMLCanvasElement): void {
@@ -54,21 +61,29 @@ function start(canvas: HTMLCanvasElement): void {
     current: world,
     previous: world,
     loop: new FixedTimestepLoop(),
-    input: 0,
+    input: new InputBuffer(),
   };
 
-  // `C-02` replaces this with real input handling; it exists so the loop has
-  // something to feed the sim.
+  attachKeyboard(window, session.input, loadBindings(safeLocalStorage()));
+  attachTouch(canvas, session.input, () => ({ width: viewport.width, height: viewport.height }));
+
   const inputs = [0];
 
   const frame = (timestampMs: number): void => {
     const resized = resizeCanvas(canvas);
     if (resized !== null) viewport = resized;
 
+    // Polled once a frame; the buffer latches, so a button pressed and released
+    // between two ticks still reaches the sim.
+    pollGamepad(navigator.getGamepads?.()[0] ?? null, session.input);
+
     const { steps, alpha } = session.loop.advance(timestampMs);
 
-    inputs[0] = session.input;
     for (let i = 0; i < steps; i += 1) {
+      // Sampled once per tick, inside the loop. Sampling once per *frame* would
+      // hand several ticks the same byte during catch-up, and hand none of them
+      // the taps that happened in between.
+      inputs[0] = session.input.sample();
       // The previous state is kept so C-05 can render between the two. This is
       // free because step() returns a copy and never mutates (ADR 0004).
       session.previous = session.current;
@@ -102,6 +117,15 @@ function render(
     16 * viewport.pixelRatio,
     28 * viewport.pixelRatio,
   );
+}
+
+/** `localStorage` throws on access in some privacy modes rather than returning null. */
+function safeLocalStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game');
