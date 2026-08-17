@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { BUDGET_60_MS, FrameTimes } from '../src/debug/frametimes.js';
+import { BUDGET_60_MS, FrameTimes, SETTLE_SAMPLES } from '../src/debug/frametimes.js';
 
 describe('FrameTimes', () => {
   it('reports nothing rather than NaN before any frame', () => {
@@ -126,12 +126,49 @@ describe('FrameTimes', () => {
     expect(times.summary().maxMs).toBe(16);
   });
 
+  it('refuses to call the 1% low meaningful on a short window', () => {
+    // Below 100 samples the "worst 1%" rounds down to a single frame, so the
+    // figure is just "slowest frame since load" — and the first frame after
+    // startup is always slow (module parse, first paint, font warm-up). Without
+    // this gate the number on screen for the first second of every run is
+    // noise, and it is the number being stared at all day.
+    const times = new FrameTimes(240);
+    times.push(180); // the startup frame
+    for (let i = 0; i < 30; i += 1) times.push(16);
+
+    const early = times.summary();
+    expect(early.settled).toBe(false);
+    expect(early.lowOnePercentFps).toBeLessThan(10); // pinned to that one frame
+
+    for (let i = 0; i < 100; i += 1) times.push(16);
+    expect(times.summary().settled).toBe(true);
+
+    // Still low, and correctly so — one 180 ms frame in 131 really is the worst
+    // 1%. `settled` says the statistic is meaningful, not that it is good.
+    expect(times.summary().lowOnePercentFps).toBeLessThan(10);
+
+    // It recovers only once the stall ages out of the window, which is the
+    // behaviour wanted: a hitch stays visible for the four seconds it takes to
+    // scroll off, rather than being averaged away the instant it happens.
+    for (let i = 0; i < 240; i += 1) times.push(16);
+    expect(times.summary().lowOnePercentFps).toBeGreaterThan(50);
+  });
+
+  it('settles at exactly SETTLE_SAMPLES, not one either side', () => {
+    const times = new FrameTimes(240);
+    for (let i = 0; i < SETTLE_SAMPLES - 1; i += 1) times.push(16);
+    expect(times.summary().settled).toBe(false);
+    times.push(16);
+    expect(times.summary().settled).toBe(true);
+  });
+
   it('clears on reset', () => {
     const times = new FrameTimes(8);
     for (let i = 0; i < 8; i += 1) times.push(16);
     times.reset();
     expect(times.count).toBe(0);
     expect(times.summary().meanFps).toBe(0);
+    expect(times.summary().settled).toBe(false);
   });
 
   it('rejects a nonsense capacity', () => {

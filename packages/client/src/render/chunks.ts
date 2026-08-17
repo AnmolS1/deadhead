@@ -280,15 +280,22 @@ export class GroundCache<TSurface> {
  * widest zoom needs `width × height ÷ zoom²` pixels, and a rotated view's
  * axis-aligned cover is up to 2× that in area at 45°.
  *
- * **The factor is the full 2×, not a discounted one.** An earlier version used
- * 1.6 and justified it as "chunk-level culling recovers most of the rotation
- * slop" — but {@link GroundCache.chunksIn} floor-divides the AABB and yields
- * every chunk in that rectangle, with no per-chunk test against the rotated
- * quad. The mitigation did not exist. Under-provisioning by ~30% at worst
- * rotation would surface as `overBudget` on real hardware for no visible
- * reason, and a comment asserting a mitigation the code lacks is exactly the
- * defect that made `C-03` and `C-04` disagree about rotation in the first
- * place.
+ * **The factor is a bound, not a measurement.** It is the full 2× because
+ * that is the worst case and nothing here has been profiled on real hardware;
+ * do not record it anywhere as derived.
+ *
+ * An earlier version used 1.6 and justified it as "chunk-level culling recovers
+ * most of the rotation slop" — but {@link GroundCache.chunksIn} floor-divides
+ * the AABB and yields every chunk in that rectangle, with no per-chunk test
+ * against the rotated quad. The mitigation did not exist. A comment asserting a
+ * mitigation the code lacks is exactly the defect that made `C-03` and `C-04`
+ * disagree about rotation in the first place.
+ *
+ * Erring high is the cheap direction: this is a soft ceiling with an LRU behind
+ * it, so over-provisioning costs headroom while under-provisioning surfaces as
+ * `overBudget` on real hardware for no visible reason. Worth knowing it *is*
+ * over-provisioned in practice — `C-03` rotates to heading, so the view sits at
+ * the 45° worst case only in passing, never continuously.
  *
  * If per-chunk quad culling is added later (a SAT test against the four view
  * corners, using the already-exported `overlaps` and a quad from the viewport),
