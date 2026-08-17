@@ -170,7 +170,11 @@ describe('worldToScreen and screenToWorld', () => {
         [12, -400],
         [999, 999],
       ] as const) {
-        const back = screenToWorld(state, worldToScreen(state, x, y).x, worldToScreen(state, x, y).y);
+        const back = screenToWorld(
+          state,
+          worldToScreen(state, x, y).x,
+          worldToScreen(state, x, y).y,
+        );
         expect(back.x, `rot ${rotation}`).toBeCloseTo(x, 6);
         expect(back.y, `rot ${rotation}`).toBeCloseTo(y, 6);
       }

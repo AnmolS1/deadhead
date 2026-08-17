@@ -224,10 +224,7 @@ export function visiblePassengers(
 }
 
 /** Reads one entity's raw pose fields out of a world. */
-type PoseReader = (
-  world: World,
-  slot: number,
-) => { x: number; y: number; heading: number };
+type PoseReader = (world: World, slot: number) => { x: number; y: number; heading: number };
 
 const readCar: PoseReader = (world, slot) => ({
   x: getCar(world, slot, Car.X),

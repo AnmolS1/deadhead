@@ -64,7 +64,12 @@ export interface ChunkSurface {
 export type SurfaceFactory = (width: number, height: number) => ChunkSurface;
 
 /** Draws the static ground for one chunk. Called once per chunk, on a miss. */
-export type ChunkPainter = (surface: ChunkSurface, bounds: Bounds, chunkX: number, chunkY: number) => void;
+export type ChunkPainter = (
+  surface: ChunkSurface,
+  bounds: Bounds,
+  chunkX: number,
+  chunkY: number,
+) => void;
 
 export interface GroundCacheOptions {
   /** Side of one chunk, in world units. */
