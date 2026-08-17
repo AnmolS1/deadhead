@@ -42,6 +42,7 @@ import {
   Car,
   CarFlags,
   FX_ONE,
+  NO_PASSENGER,
   MAX_PASSENGERS,
   MAX_TRAFFIC,
   NO_CARRIER,
@@ -56,8 +57,15 @@ import {
   type World,
 } from '@deadhead/sim';
 
+import { type GroundCache } from './chunks.js';
 import { lerpPose, shouldInterpolate, type Pose } from './interp.js';
-import { containsPoint, visibleBounds, type Bounds, type ViewportState } from './viewport.js';
+import {
+  applyCamera,
+  containsPoint,
+  visibleBounds,
+  type Bounds,
+  type ViewportState,
+} from './viewport.js';
 
 /** The layers, back to front. Index order is draw order. */
 export const LAYERS = [
@@ -97,6 +105,13 @@ export function emptyFrameStats(): FrameStats {
  * things pop in at the edge of the screen; too large and the cull stops paying
  * for itself. They are stated here, together, because they are a property of
  * the art rather than of any one layer's code.
+ *
+ * **Applied exactly once**, as the radius argument to `containsPoint`, with
+ * `visibleBounds` given no margin of its own. The first version passed the
+ * margin to *both*, which silently doubled it: the documented 3-unit margin
+ * behaved as 6, and the edge test passed either way because it probed x=52
+ * when the real boundary had moved to x=56. Conservative, so nothing looked
+ * wrong — but twice the stated value, and the test could not tell.
  */
 export const CullMargins = {
   /** A cab is about 4 units long, so 3 clears its corner under any rotation. */
@@ -140,7 +155,7 @@ export function visibleCars(
   alpha: number,
   count: LayerCount,
 ): Drawable[] {
-  const bounds = visibleBounds(view, CullMargins.cars);
+  const bounds = visibleBounds(view);
   const out: Drawable[] = [];
   const players = getPlayerCount(current);
 
@@ -170,7 +185,7 @@ export function visibleTraffic(
   alpha: number,
   count: LayerCount,
 ): Drawable[] {
-  const bounds = visibleBounds(view, CullMargins.traffic);
+  const bounds = visibleBounds(view);
   const out: Drawable[] = [];
 
   for (let slot = 0; slot < MAX_TRAFFIC; slot += 1) {
@@ -199,7 +214,7 @@ export function visiblePassengers(
   view: ViewportState,
   count: LayerCount,
 ): Drawable[] {
-  const bounds = visibleBounds(view, CullMargins.pickups);
+  const bounds = visibleBounds(view);
   const out: Drawable[] = [];
 
   for (let slot = 0; slot < MAX_PASSENGERS; slot += 1) {
@@ -301,4 +316,182 @@ export function drawableBounds(drawable: Drawable, radius: number): Bounds {
     maxX: drawable.pose.x + radius,
     maxY: drawable.pose.y + radius,
   };
+}
+
+// ---------------------------------------------------------------------------
+// The frame itself.
+// ---------------------------------------------------------------------------
+
+/**
+ * The 2D context operations a frame uses.
+ *
+ * Declared structurally rather than as `CanvasRenderingContext2D` so a frame
+ * can be rendered against a recording double in node. This is a narrowing that
+ * pays: unlike a chunk surface — which must be a *real* canvas because
+ * `drawImage` demands one — a context is only ever called, never handed to a
+ * browser API, so a double that records calls is a complete stand-in.
+ */
+export interface FrameContext {
+  save(): void;
+  restore(): void;
+  translate(x: number, y: number): void;
+  rotate(angle: number): void;
+  scale(x: number, y: number): void;
+  clearRect(x: number, y: number, w: number, h: number): void;
+  fillRect(x: number, y: number, w: number, h: number): void;
+  /**
+   * `unknown` rather than `CanvasImageSource` on purpose.
+   *
+   * The image is whatever `TSurface` the ground cache was built with — an
+   * `OffscreenCanvas` in the browser, a double in a test — and `FrameContext`
+   * is this renderer's own abstraction rather than a DOM type, so it should not
+   * demand one. (`never` was the first attempt and is worse than useless here:
+   * it makes the method uncallable by anyone, including the blit that is its
+   * only caller.)
+   */
+  drawImage(image: unknown, dx: number, dy: number, dw: number, dh: number): void;
+  fillStyle: string;
+  globalAlpha: number;
+}
+
+/** Everything one frame needs. Assembled by `main.ts`, never by a layer. */
+export interface FrameInput<TSurface> {
+  readonly previous: World;
+  readonly current: World;
+  readonly view: ViewportState;
+  /** Interpolation fraction from `loop.ts`, in `[0, 1)`. */
+  readonly alpha: number;
+  /** The ground cache. Omitted by `W-02`'s editor, which draws its own ground. */
+  readonly ground?: {
+    readonly cache: GroundCache<TSurface>;
+    /** Blits one prepared chunk. Kept out of here so the cache stays canvas-agnostic. */
+    readonly blit: (context: FrameContext, surface: TSurface, bounds: Bounds) => void;
+  };
+}
+
+/**
+ * Draw one frame, in layer order, and report what each layer did.
+ *
+ * This is the only function that knows the order, and it iterates {@link LAYERS}
+ * rather than hard-coding a sequence of calls — so a layer added to the array
+ * and not handled here is a compile error rather than a layer that silently
+ * never draws.
+ *
+ * The placeholder shapes are deliberate. `W-05` replaces every fill in here
+ * with the real identity; what `C-04` owes is the *structure* — correct order,
+ * correct culling, and a blit that actually reaches a canvas — so that `W-02`
+ * has a renderer to reuse and `W-05` has somewhere to put the art.
+ */
+export function renderScene<TSurface>(
+  context: FrameContext,
+  input: FrameInput<TSurface>,
+): FrameStats {
+  const stats = emptyFrameStats();
+  const { view } = input;
+
+  context.save();
+  context.clearRect(0, 0, view.width, view.height);
+  applyCamera(context as unknown as CanvasRenderingContext2D, view);
+
+  for (const layer of LAYERS) {
+    drawLayer(layer, context, input, stats);
+  }
+
+  context.restore();
+  return stats;
+}
+
+/**
+ * One layer.
+ *
+ * The `switch` is exhaustive over {@link Layer}; the `never` in the default
+ * branch is what makes adding a layer to `LAYERS` without handling it fail to
+ * compile, rather than fail silently at 60 fps.
+ */
+function drawLayer<TSurface>(
+  layer: Layer,
+  context: FrameContext,
+  input: FrameInput<TSurface>,
+  stats: FrameStats,
+): void {
+  const { previous, current, view, alpha } = input;
+
+  switch (layer) {
+    case 'ground': {
+      const ground = input.ground;
+      if (ground === undefined) return;
+      const bounds = visibleBounds(view);
+      ground.cache.beginFrame();
+      for (const chunk of ground.cache.chunksIn(bounds)) {
+        stats.ground.considered += 1;
+        const surface = ground.cache.acquire(chunk.x, chunk.y);
+        ground.blit(context, surface, ground.cache.boundsOf(chunk.x, chunk.y));
+        stats.ground.drawn += 1;
+      }
+      ground.cache.endFrame();
+      return;
+    }
+
+    case 'markings':
+    case 'props':
+      // Authored per city and drawn into the ground chunks by W-03's painter,
+      // so there is nothing to do here at C-04. They keep their slot in the
+      // order because W-06's signage is a prop that must sit above the road
+      // and below the cars.
+      return;
+
+    case 'shadows': {
+      // One flat ellipse per body. Drawn as a rect until W-05, but drawn from
+      // the same culled list as the bodies so the two can never disagree.
+      const cars = visibleCars(previous, current, view, alpha, stats.shadows);
+      context.globalAlpha = 0.25;
+      context.fillStyle = '#000000';
+      for (const car of cars) context.fillRect(car.pose.x - 2, car.pose.y - 1, 4, 2);
+      context.globalAlpha = 1;
+      return;
+    }
+
+    case 'traffic': {
+      const traffic = visibleTraffic(previous, current, view, alpha, stats.traffic);
+      context.fillStyle = '#5a6472';
+      for (const npc of traffic) context.fillRect(npc.pose.x - 2, npc.pose.y - 1, 4, 2);
+      return;
+    }
+
+    case 'cars': {
+      const cars = visibleCars(previous, current, view, alpha, stats.cars);
+      for (const car of cars) {
+        // A carrying cab reads differently from an empty one. That contrast is
+        // the entire game (DESIGN.md §2.1) and C-08 owns making it felt; this
+        // is only a stand-in so the distinction exists from the first frame.
+        const carrying = getCar(current, car.slot, Car.CarriedPassenger) !== NO_PASSENGER;
+        context.fillStyle = carrying ? '#f0c419' : '#c8ccd2';
+        context.fillRect(car.pose.x - 2, car.pose.y - 1, 4, 2);
+      }
+      return;
+    }
+
+    case 'pickups': {
+      const waiting = visiblePassengers(current, view, stats.pickups);
+      context.fillStyle = '#3fb27f';
+      for (const person of waiting)
+        context.fillRect(person.pose.x - 0.5, person.pose.y - 0.5, 1, 1);
+      return;
+    }
+
+    case 'particles':
+      // C-08 owns these. The slot is here so the order is settled now rather
+      // than renegotiated later.
+      return;
+
+    case 'overlay':
+      // C-05's HUD draws in screen space, after the camera is unwound. G-02
+      // fills this in; the slot exists so nothing else can end up last.
+      return;
+
+    default: {
+      const exhaustive: never = layer;
+      throw new Error(`unhandled layer: ${String(exhaustive)}`);
+    }
+  }
 }

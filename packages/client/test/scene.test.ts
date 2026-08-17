@@ -95,14 +95,24 @@ describe('cars', () => {
     expect(stats.cars.drawn).toBe(1);
   });
 
-  it('keeps a cab straddling the edge rather than popping it', () => {
-    // Just past the right edge at x=50, but within the 3-unit margin. Culling
-    // on the centre alone would make cabs vanish half-drawn at the boundary.
-    const world = createWorld(1, 1);
-    placeCar(world, 0, 52, 0);
-    const stats = emptyFrameStats();
+  it('keeps a cab straddling the edge, and drops it exactly one margin out', () => {
+    // Both sides of the boundary, because only the pair pins it. The view ends
+    // at x=50 and CullMargins.cars is 3, so 53 is the last cab drawn and 54 is
+    // the first culled.
+    //
+    // The first version of this test probed x=52 alone and asserted only that
+    // it was drawn. That passes whatever the margin is, which is how it missed
+    // the margin being applied TWICE — once widening the bounds and again as
+    // the point radius — putting the real boundary at 56 while the constant
+    // said 3. A one-sided edge test cannot see a too-generous edge.
+    const drawnAt = (x: number): number => {
+      const world = createWorld(1, 1);
+      placeCar(world, 0, x, 0);
+      return visibleCars(world, world, view(), 0, emptyFrameStats().cars).length;
+    };
 
-    expect(visibleCars(world, world, view(), 0, stats.cars)).toHaveLength(1);
+    expect(drawnAt(53)).toBe(1);
+    expect(drawnAt(54)).toBe(0);
   });
 
   it('never considers an eliminated cab', () => {

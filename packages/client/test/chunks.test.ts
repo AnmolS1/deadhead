@@ -3,19 +3,37 @@ import { describe, expect, it } from 'vitest';
 import {
   GroundCache,
   suggestedBudgetBytes,
-  type ChunkSurface,
   type GroundCacheOptions,
 } from '../src/render/chunks.js';
 
+/**
+ * A chunk double that can be painted into, the way a real surface can.
+ *
+ * Deliberately more than `{ width, height }`. The first version of this file
+ * used exactly that and every test passed — but the cache's surface type was
+ * then narrowed to match, and `{ width, height }` has no `getContext` and is
+ * not a `CanvasImageSource`, so nothing could paint into it and `drawImage`
+ * rejected it. A double that cannot do what the real thing does lets a type
+ * pass tests that production can never use.
+ */
+interface FakeSurface {
+  readonly width: number;
+  readonly height: number;
+  readonly painted: string[];
+}
+
 /** Counts paints, so a test can tell a cache hit from a re-render. */
-function harness(overrides: Partial<GroundCacheOptions> = {}) {
+function harness(overrides: Partial<GroundCacheOptions<FakeSurface>> = {}) {
   const painted: string[] = [];
-  const cache = new GroundCache({
+  const cache = new GroundCache<FakeSurface>({
     chunkUnits: 32,
     pixelsPerUnit: 1, // keeps bytesPerChunk a round 32×32×4 = 4,096
     budgetBytes: 1024 * 1024,
-    createSurface: (width, height): ChunkSurface => ({ width, height }),
-    paint: (_surface, _bounds, x, y) => void painted.push(`${x},${y}`),
+    createSurface: (width, height): FakeSurface => ({ width, height, painted: [] }),
+    paint: (surface, _bounds, x, y) => {
+      painted.push(`${x},${y}`);
+      surface.painted.push(`${x},${y}`);
+    },
     ...overrides,
   });
   return { cache, painted };
@@ -226,11 +244,14 @@ describe('suggestedBudgetBytes', () => {
   });
 
   it('lands in a sane range for a retina laptop', () => {
-    // 3840×2160 backing store — a 1080p panel at DPR 2.
+    // 3840×2160 backing store — a 1080p panel at DPR 2. At the honest 2×
+    // rotation factor this is ~101 MB: large, but it is the real floor for a
+    // full-screen ground cache and the LRU keeps it a ceiling rather than a
+    // starting point.
     const bytes = suggestedBudgetBytes(3840, 2160);
     const mb = bytes / 1024 / 1024;
     expect(mb).toBeGreaterThan(50);
-    expect(mb).toBeLessThan(150);
+    expect(mb).toBeLessThan(200);
   });
 
   it('asks for more when the camera can zoom further out', () => {
