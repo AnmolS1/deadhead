@@ -210,6 +210,40 @@ describe('frame-rate independence', () => {
     expect(Math.abs(fast.view().x - slow.view().x)).toBeLessThan(travelled * 0.01);
   });
 
+  it('smooths a 30 Hz target into 144 Hz motion', () => {
+    // The other half of C-03's done-when, and the reason CameraTarget exists as
+    // a float struct at all. The sim produces a new pose thirty times a second;
+    // a camera pinned straight to it moves a whole unit on one frame in five
+    // and not at all on the other four, which is exactly the stutter this task
+    // is about. Smoothed, the same motion arrives as ~0.21 units every frame.
+    const subject = camera();
+    const frameMs = 1000 / 144;
+    const staircase = (elapsedMs: number): CameraTarget =>
+      target({ x: Math.floor((elapsedMs / 1000) * 30), speedFraction: 1 });
+
+    subject.snap(staircase(0));
+
+    let previous = subject.view().x;
+    let smallest = Infinity;
+    let largest = 0;
+    for (let frame = 1; frame <= 300; frame += 1) {
+      subject.update(staircase(frame * frameMs), frameMs);
+      const x = subject.view().x;
+      // Skip the first 60 frames: the follow is still settling into its
+      // steady-state lag and its deltas are transient, not the property here.
+      if (frame > 60) {
+        smallest = Math.min(smallest, x - previous);
+        largest = Math.max(largest, x - previous);
+      }
+      previous = x;
+    }
+
+    expect(largest).toBeLessThan(0.4);
+    // The one that actually bites. A camera pinned to the target sits perfectly
+    // still on four frames out of five, and `largest` alone would not say so.
+    expect(smallest).toBeGreaterThan(0.05);
+  });
+
   it('shakes identically at 60 Hz and at 144 Hz', () => {
     // The reason the shake is a function of elapsed shake time rather than a
     // per-frame random walk: a walk would draw 2.4x as many samples at 144 Hz
@@ -507,19 +541,24 @@ describe('screenshake', () => {
   });
 
   it('is not calmed by a second, smaller hit', () => {
-    // Clipping a wall a frame after a crash must not settle the camera down.
+    // Clipping a wall a few frames after a crash must not settle the camera
+    // down. Asserted on the *peak* over a window rather than on one sample:
+    // each `shake()` redraws the phases, so a single reading is whatever the
+    // draw happened to give and cannot tell a budget of 1.7 from one of 0.05.
     const subject = camera();
     subject.snap(target({}));
     subject.shake(2);
-    const strong = Math.hypot(subject.view().shakeX, subject.view().shakeY);
+    runDisplay(subject, 144, 0.03, AT_REST);
 
     subject.shake(0.05);
-    subject.update(AT_REST, 0);
-    const afterScrape = subject.view();
-    // Same amplitude budget, new phases — so compare the bound, not the offset.
-    expect(Math.hypot(afterScrape.shakeX, afterScrape.shakeY)).toBeLessThanOrEqual(2 + 1e-9);
-    expect(strong).toBeGreaterThan(0);
-    expect(subject.view().shakeX === 0 && subject.view().shakeY === 0).toBe(false);
+    let peak = 0;
+    for (let frame = 0; frame < 9; frame += 1) {
+      subject.update(AT_REST, 1000 / 144);
+      peak = Math.max(peak, Math.abs(subject.view().shakeX));
+    }
+
+    // The scrape's own 0.05 could not reach a tenth of this.
+    expect(peak).toBeGreaterThan(0.5);
   });
 
   it('ignores a nonsensical intensity', () => {
