@@ -114,13 +114,25 @@ export function emptyFrameStats(): FrameStats {
  * wrong — but twice the stated value, and the test could not tell.
  */
 export const CullMargins = {
-  /** A cab is about 4 units long, so 3 clears its corner under any rotation. */
-  cars: 3,
-  traffic: 3,
+  /**
+   * A cab's half-diagonal, rounded up.
+   *
+   * `CarTuning.halfLength` is 1.1 and `halfWidth` is 0.5, so the cab is
+   * 2.2 × 1.0 units and the furthest any corner sits from its centre is
+   * `hypot(1.1, 0.5)` ≈ 1.21 — at any rotation. 1.5 clears that with room to
+   * spare.
+   *
+   * The first version said 3, "because a cab is about 4 units long". It is not;
+   * that number came from nowhere and was 2.5× more than needed, so every frame
+   * drew a band of cabs that could not be seen. Read from `CarTuning` rather
+   * than estimated, which is where the real answer was the whole time.
+   */
+  cars: 1.5,
+  traffic: 1.5,
   /** A passenger marker plus its bobbing arrow. */
   pickups: 2.5,
   /** Shadows sit under bodies and are never larger than them. */
-  shadows: 3,
+  shadows: 1.5,
   /** Props are authored per city; the largest in `W-03` is a planter. */
   props: 4,
   /** Particles are small but fast — a generous margin costs nothing. */
