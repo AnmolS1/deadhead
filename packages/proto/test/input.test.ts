@@ -24,7 +24,7 @@ function* prng(seed: number): Generator<number> {
 }
 
 const roundTrip = (ticks: Uint8Array, seed = 1, startedAtMs = 0): Uint8Array =>
-  decodeInputLog(encodeInputLog({ seed, startedAtMs, ticks })).ticks;
+  decodeInputLog(encodeInputLog({ seed, cityHash: 0xabc123, startedAtMs, ticks })).ticks;
 
 // ---------------------------------------------------------------------------
 
@@ -80,12 +80,19 @@ describe('log round-trip', () => {
     }
   });
 
+  it('preserves the city hash, so a log knows what it was played on', () => {
+    const log = decodeInputLog(
+      encodeInputLog({ seed: 1, cityHash: 0xdead_beef, startedAtMs: 0, ticks: new Uint8Array(4) }),
+    );
+    expect(log.cityHash).toBe(0xdead_beef);
+  });
+
   it('preserves the seed and the client timestamp', () => {
     // The timestamp is not trusted and not used by the sim — B-07 compares it
     // against the server-minted token. It still has to survive the round trip.
     const startedAtMs = 1_800_000_000_000;
     const log = decodeInputLog(
-      encodeInputLog({ seed: -12345, startedAtMs, ticks: new Uint8Array(10) }),
+      encodeInputLog({ seed: -12345, cityHash: 0xabc123, startedAtMs, ticks: new Uint8Array(10) }),
     );
     expect(log.seed).toBe(-12345);
     expect(log.startedAtMs).toBe(startedAtMs);
@@ -96,16 +103,16 @@ describe('log round-trip', () => {
     // 32-bit halves because this format has no floats and no int64.
     for (const startedAtMs of [0, 0xffffffff, 0x1_0000_0000, 1_800_000_000_000]) {
       const log = decodeInputLog(
-        encodeInputLog({ seed: 1, startedAtMs, ticks: new Uint8Array(4) }),
+        encodeInputLog({ seed: 1, cityHash: 7, startedAtMs, ticks: new Uint8Array(4) }),
       );
       expect(log.startedAtMs).toBe(startedAtMs);
     }
   });
 
   it('stamps the format version', () => {
-    expect(encodeInputLog({ seed: 1, startedAtMs: 0, ticks: new Uint8Array(4) })[0]).toBe(
-      INPUT_FORMAT_VERSION,
-    );
+    expect(
+      encodeInputLog({ seed: 1, cityHash: 0xabc123, startedAtMs: 0, ticks: new Uint8Array(4) })[0],
+    ).toBe(INPUT_FORMAT_VERSION);
   });
 });
 
@@ -122,7 +129,7 @@ describe('size', () => {
       ticks[i] = held;
     }
 
-    const encoded = encodeInputLog({ seed: 1, startedAtMs: 0, ticks });
+    const encoded = encodeInputLog({ seed: 1, cityHash: 0xabc123, startedAtMs: 0, ticks });
     expect(encoded.length).toBeLessThan(4_096);
   });
 
@@ -130,26 +137,36 @@ describe('size', () => {
     // The worst case for RLE: a different input every tick, two bytes each.
     // Still far inside the hard cap, which is what matters for B-07.
     const ticks = Uint8Array.from({ length: 14_400 }, (_, i) => i & INPUT_MASK);
-    const encoded = encodeInputLog({ seed: 1, startedAtMs: 0, ticks });
+    const encoded = encodeInputLog({ seed: 1, cityHash: 0xabc123, startedAtMs: 0, ticks });
     expect(encoded.length).toBeLessThan(MAX_INPUT_LOG_BYTES);
   });
 
   it('splits a hold longer than one count byte can carry', () => {
     const ticks = new Uint8Array(1_000).fill(Input.Throttle);
-    const encoded = encodeInputLog({ seed: 1, startedAtMs: 0, ticks });
+    const encoded = encodeInputLog({ seed: 1, cityHash: 0xabc123, startedAtMs: 0, ticks });
     // ceil(1000 / 255) = 4 runs, 2 bytes each.
-    expect(encoded.length).toBe(20 + 8);
+    expect(encoded.length).toBe(24 + 8);
     expect(Array.from(roundTrip(ticks))).toEqual(Array.from(ticks));
   });
 });
 
 describe('rejection', () => {
   const valid = (): Uint8Array =>
-    encodeInputLog({ seed: 1, startedAtMs: 0, ticks: new Uint8Array(100).fill(Input.Throttle) });
+    encodeInputLog({
+      seed: 1,
+      cityHash: 0xabc123,
+      startedAtMs: 0,
+      ticks: new Uint8Array(100).fill(Input.Throttle),
+    });
 
   it('refuses to encode more ticks than a run can contain', () => {
     expect(() =>
-      encodeInputLog({ seed: 1, startedAtMs: 0, ticks: new Uint8Array(MAX_INPUT_LOG_TICKS + 1) }),
+      encodeInputLog({
+        seed: 1,
+        cityHash: 0xabc123,
+        startedAtMs: 0,
+        ticks: new Uint8Array(MAX_INPUT_LOG_TICKS + 1),
+      }),
     ).toThrow(/ticks/);
   });
 
@@ -171,11 +188,11 @@ describe('rejection', () => {
     // Otherwise a log could claim 14,400 ticks and carry two, which would let a
     // submission assert a long run it never played.
     const short = valid();
-    new DataView(short.buffer).setUint32(16, 500, true);
+    new DataView(short.buffer).setUint32(20, 500, true);
     expect(() => decodeInputLog(short)).toThrow(/carries/);
 
     const long = valid();
-    new DataView(long.buffer).setUint32(16, 10, true);
+    new DataView(long.buffer).setUint32(20, 10, true);
     expect(() => decodeInputLog(long)).toThrow(/overrun/);
   });
 
@@ -183,17 +200,17 @@ describe('rejection', () => {
     // Encodes nothing and advances nothing. A decoder that tolerates it can be
     // made to loop forever on a hostile log.
     const bytes = valid();
-    bytes[21] = 0;
+    bytes[25] = 0;
     expect(() => decodeInputLog(bytes)).toThrow(/zero-length/);
   });
 
   it('rejects a truncated pair', () => {
-    expect(() => decodeInputLog(valid().subarray(0, 21))).toThrow(/pairs/);
+    expect(() => decodeInputLog(valid().subarray(0, 25))).toThrow(/pairs/);
   });
 
   it('rejects a declared tick count past the cap', () => {
     const bytes = valid();
-    new DataView(bytes.buffer).setUint32(16, MAX_INPUT_LOG_TICKS + 1, true);
+    new DataView(bytes.buffer).setUint32(20, MAX_INPUT_LOG_TICKS + 1, true);
     expect(() => decodeInputLog(bytes)).toThrow(/max/);
   });
 

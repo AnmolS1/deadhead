@@ -135,3 +135,7 @@ export { FareTuning, cashOf, fareValue, waitingCount, withinRadius } from './far
 export { TrafficTuning, isTrafficActive, trafficCount } from './traffic.js';
 
 export type { NavGraph } from './city.js';
+
+export { DEFAULT_HASH_INTERVAL, firstDivergence, runEncodedLog, runLog } from './run.js';
+
+export type { RunOptions, RunResult } from './run.js';

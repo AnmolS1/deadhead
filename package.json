@@ -26,7 +26,9 @@
     "test": "npm run test --workspaces --if-present",
     "check:all": "npm run format:check && npm run lint && npm run typecheck && npm run lint:sim-purity && npm run test && npm run test:workerd",
     "lint:sim-purity": "tsc --build && bash scripts/validate/sim-purity.sh",
-    "test:workerd": "npm run test:workerd --workspaces --if-present"
+    "test:workerd": "npm run test:workerd --workspaces --if-present",
+    "simrun": "npm run build --silent && node tools/simrun/dist/cli.js",
+    "goldens": "npm run build --silent && node tools/simrun/dist/generate-goldens.js"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

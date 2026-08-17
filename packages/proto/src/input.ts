@@ -50,7 +50,7 @@ export function packInput(...flags: readonly number[]): number {
 // ---------------------------------------------------------------------------
 
 /** Bytes of fixed header before the run-length encoded stream. */
-const HEADER_BYTES = 20;
+const HEADER_BYTES = 24;
 
 /**
  * Hard ceiling on an encoded log. An 8-minute run at 30 Hz is 14,400 ticks —
@@ -66,6 +66,15 @@ export const MAX_INPUT_LOG_TICKS = 36_000;
 export interface InputLog {
   /** Seed the run was played on. Minted server-side in `B-06`; the client cannot choose it. */
   readonly seed: number;
+  /**
+   * Content hash of the city it was played on (`W-01`).
+   *
+   * Recorded so a log is **self-describing**: `S-13` can refuse to replay it
+   * against the wrong city instead of producing a plausible wrong score. ADR
+   * 0005 already makes a wrong city diverge — the hash folds into the run seed
+   * — but diverging is a mystery and a mismatched hash is a sentence.
+   */
+  readonly cityHash: number;
   /**
    * Wall-clock milliseconds at tick 0, as reported by the client.
    *
@@ -119,7 +128,8 @@ export function encodeInputLog(log: InputLog): Uint8Array {
   view.setUint32(4, log.seed >>> 0, true);
   view.setUint32(8, Math.floor(log.startedAtMs / 0x1_0000_0000) >>> 0, true);
   view.setUint32(12, log.startedAtMs >>> 0, true);
-  view.setUint32(16, log.ticks.length, true);
+  view.setUint32(16, log.cityHash >>> 0, true);
+  view.setUint32(20, log.ticks.length, true);
   bytes.set(runs, HEADER_BYTES);
 
   if (bytes.length > MAX_INPUT_LOG_BYTES) {
@@ -159,7 +169,8 @@ export function decodeInputLog(bytes: Uint8Array): InputLog {
 
   const seed = view.getUint32(4, true) | 0;
   const startedAtMs = view.getUint32(8, true) * 0x1_0000_0000 + view.getUint32(12, true);
-  const tickCount = view.getUint32(16, true);
+  const cityHash = view.getUint32(16, true);
+  const tickCount = view.getUint32(20, true);
 
   if (tickCount > MAX_INPUT_LOG_TICKS) {
     throw new RangeError(`input log declares ${tickCount} ticks, max ${MAX_INPUT_LOG_TICKS}`);
@@ -189,5 +200,5 @@ export function decodeInputLog(bytes: Uint8Array): InputLog {
     throw new RangeError(`input log declares ${tickCount} ticks but carries ${written}`);
   }
 
-  return { seed, startedAtMs, ticks };
+  return { seed, cityHash, startedAtMs, ticks };
 }

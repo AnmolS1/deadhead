@@ -31,8 +31,13 @@
  */
 export const WORLD_FORMAT_VERSION = 3;
 
-/** Layout of a recorded input log. Owned by `S-12`. */
-export const INPUT_FORMAT_VERSION = 0;
+/**
+ * Layout of a recorded input log. Owned by `S-12`.
+ *
+ * - **v1** (`S-13`): added the city content hash, so a log is self-describing
+ *   and a replay can refuse the wrong city by name rather than by divergence.
+ */
+export const INPUT_FORMAT_VERSION = 1;
 
 /** Layout of packed city data. Owned by `W-01`. */
 export const CITY_FORMAT_VERSION = 0;
