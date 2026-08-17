@@ -3,21 +3,21 @@
  *
  * This package runs byte-identically in three places: the browser (prediction),
  * a Durable Object (authority), and a Worker (replay validation). It is pure
- * ESM with zero runtime dependencies and no ambient globals.
+ * ESM with zero third-party dependencies and no ambient globals.
  *
- * What that forbids, in short — no DOM, no `Date.now()`, no `Math.random()`, no
- * `Math.sin`/`cos`/`sqrt` (implementation-defined across engines; use the
- * fixed-point LUT from `S-03`), and no floating point anywhere in state.
- * CLAUDE.md hard invariant #1 is the full list; `npm run lint:sim-purity`
- * (`S-02`) enforces it. The `tsconfig` here omits `"DOM"` from `lib`, so the
- * browser globals do not typecheck at all.
+ * What that forbids, in short — no DOM, no wall-clock time, no unseeded
+ * randomness, and none of the `Math` members the ECMAScript spec permits an
+ * engine to approximate (use the fixed-point equivalents in `fx.ts`). No
+ * floating point survives into state. CLAUDE.md hard invariant #1 is the full
+ * list; `npm run lint:sim-purity` (`S-02`) enforces it, and the `tsconfig` here
+ * omits `"DOM"` from `lib` so the browser globals do not typecheck at all.
  *
  * The only entry point is {@link step}.
  */
 
-export { createWorld, step } from './step.js';
+export { step } from './step.js';
 
-export type { Inputs, PackedInput, PlayerId, World } from './types.js';
+export type { Inputs, PackedInput, PlayerId } from './types.js';
 
 export {
   FX_MAGNITUDE_LIMIT,
@@ -49,3 +49,51 @@ export {
   fxSin,
   fxSqrt,
 } from './fx.js';
+
+export {
+  RNG_LANES,
+  rngCreate,
+  rngIsDegenerate,
+  rngNextBelow,
+  rngNextRange,
+  rngNextU32,
+  rngPick,
+  rngPickIndex,
+  rngSeed,
+} from './rng.js';
+
+export type { RngState } from './rng.js';
+
+export {
+  Car,
+  Header,
+  MAX_PASSENGERS,
+  MAX_PLAYERS,
+  MAX_TRAFFIC,
+  NO_PASSENGER,
+  Passenger,
+  Traffic,
+  WORLD_BYTES,
+  WORLD_INT32S,
+  WorldFlags,
+  cloneWorld,
+  createWorld,
+  deserialize,
+  getCar,
+  getCityHash,
+  getFormatVersion,
+  getPassenger,
+  getPlayerCount,
+  getSeed,
+  getTick,
+  getTraffic,
+  hashWorld,
+  isRunning,
+  rngOf,
+  serialize,
+  setCar,
+  setPassenger,
+  setTraffic,
+} from './world.js';
+
+export type { World } from './world.js';
