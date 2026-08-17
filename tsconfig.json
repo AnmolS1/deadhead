@@ -9,6 +9,7 @@
     { "path": "./packages/client" },
     { "path": "./packages/server" },
     { "path": "./tools/cityedit" },
+    { "path": "./tools/simrun" },
     { "path": "./tools/loadtest" }
   ]
 }

@@ -71,9 +71,12 @@ export {
   MAX_PASSENGERS,
   MAX_PLAYERS,
   MAX_TRAFFIC,
+  NO_CARRIER,
   NO_PASSENGER,
+  PassengerFlags,
   Passenger,
   Traffic,
+  TrafficFlags,
   WORLD_BYTES,
   WORLD_INT32S,
   WorldFlags,
@@ -91,6 +94,7 @@ export {
   hashWorld,
   isRunning,
   rngOf,
+  trafficRngOf,
   serialize,
   setCar,
   setPassenger,
@@ -112,3 +116,26 @@ export {
 } from './collide.js';
 
 export type { CollisionResult, StaticGeometry } from './collide.js';
+
+export { emptyCity, prepareCity } from './city.js';
+
+export type { RuntimeCity } from './city.js';
+
+export {
+  PassengerTuning,
+  demandAt,
+  despawnPassenger,
+  isPassengerActive,
+  isRush,
+  passengerCount,
+} from './passengers.js';
+
+export { FareTuning, cashOf, fareValue, waitingCount, withinRadius } from './fare.js';
+
+export { TrafficTuning, isTrafficActive, trafficCount } from './traffic.js';
+
+export type { NavGraph } from './city.js';
+
+export { DEFAULT_HASH_INTERVAL, firstDivergence, runEncodedLog, runLog } from './run.js';
+
+export type { RunOptions, RunResult } from './run.js';

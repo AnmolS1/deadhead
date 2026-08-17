@@ -43,10 +43,11 @@
  * `data` field rather than a bare `Int32Array` — the immutable shared
  * references sit alongside the buffer, outside the hash.
  */
-import { WORLD_FORMAT_VERSION } from '@deadhead/proto';
+import { WORLD_FORMAT_VERSION, foldCityHashIntoSeed } from '@deadhead/proto';
 
 import { initClocks } from './clock.js';
-import type { StaticGeometry } from './collide.js';
+import { initTraffic } from './traffic.js';
+import type { RuntimeCity } from './city.js';
 import { RNG_LANES, rngIsDegenerate, rngSeed, type RngState } from './rng.js';
 
 // ---------------------------------------------------------------------------
@@ -91,6 +92,16 @@ export const Header = {
   Flags: 7,
   /** Generator state, {@link RNG_LANES} lanes. See {@link rngOf}. */
   Rng: 8,
+  /**
+   * A **second, independent** generator, for NPC traffic only.
+   *
+   * `S-08` requires that nothing a player does may alter an NPC's trajectory.
+   * Sharing one stream would break that in a way that is easy to miss: picking
+   * up a passenger changes the waiting population, which changes whether a
+   * spawn is attempted, which changes how many numbers are drawn — and every
+   * NPC downstream would drift. Two streams, no coupling.
+   */
+  TrafficRng: 12,
 } as const;
 
 /** Run-level bit flags stored in {@link Header.Flags}. */
@@ -174,15 +185,53 @@ export const CarFlags = {
  * what later tasks build the wrong thing on top of.
  */
 export const Passenger = {
-  /** Occupancy and state bits. Owned by `S-09`. Zero means the slot is free. */
+  /** Occupancy, class and state bits — see {@link PassengerFlags}. Zero means the slot is free. */
   Flags: 0,
-  /** Position, 16.16. */
+  /** Where they are standing, 16.16. */
   X: 1,
   Y: 2,
+  /** Index into the city's destination list. `W-06` names it; `S-10` prices the trip to it. */
+  Destination: 3,
+  /** Tick they appeared. `S-10` prices a Meter fare from how long it has run. */
+  SpawnTick: 4,
+  /**
+   * Ticks of patience left.
+   *
+   * Counts down while waiting for *both* classes — an ignored passenger gives
+   * up and leaves. It additionally counts down while **carried** for `Meter`
+   * only: that is their failure mode (they bail and you get nothing). A `Rush`
+   * passenger never bails; their fare decays to a floor instead
+   * (`DESIGN.md` §2.1).
+   */
+  PatienceTicks: 5,
+  /** Cab carrying them, or {@link NO_CARRIER}. */
+  Carrier: 6,
 } as const;
 
-/** Slots 3–7 reserved for `S-09`. */
+/** Slot 7 reserved. */
 const PASSENGER_STRIDE = 8;
+
+/** {@link Passenger.Carrier} when nobody has them. */
+export const NO_CARRIER = -1;
+
+/** Bit flags stored in {@link Passenger.Flags}. */
+export const PassengerFlags = {
+  /** The slot is occupied. Cleared on despawn, delivery, bail or expiry. */
+  Active: 1 << 0,
+  /**
+   * `Rush` rather than `Meter`. The two classes have **opposite** incentives —
+   * a Meter fare grows the longer it runs, a Rush fare decays from a maximum —
+   * which is what makes two passengers on the same corner a real decision
+   * (`DESIGN.md` §2.1).
+   */
+  Rush: 1 << 1,
+  /**
+   * A cab has committed to this passenger and others cannot take them for a
+   * short window. Reserved for `M-08`'s hail lock, so contested pickups are
+   * decided by positioning and braking rather than a frame-perfect coin flip.
+   */
+  HailLocked: 1 << 2,
+} as const;
 
 /**
  * Fields of one NPC vehicle.
@@ -198,17 +247,30 @@ const PASSENGER_STRIDE = 8;
  * needs to be *transmitted*, which still holds.
  */
 export const Traffic = {
-  /** Occupancy and state bits. Owned by `S-08`. Zero means the slot is free. */
+  /** Occupancy and direction bits — see {@link TrafficFlags}. Zero means the slot is free. */
   Flags: 0,
-  /** Position, 16.16. */
+  /** Position, 16.16. Derived each tick from {@link Edge} and {@link Progress}. */
   X: 1,
   Y: 2,
-  /** Facing, `uint16` turn. */
+  /** Facing, `uint16` turn. Constant along an edge, recomputed at each junction. */
   Heading: 3,
+  /** Index into the city's edge list. */
+  Edge: 4,
+  /** Distance travelled along the current edge, 16.16. */
+  Progress: 5,
+  /** Units per tick, 16.16. Fixed for this vehicle's lifetime. */
+  Speed: 6,
 } as const;
 
-/** Slots 4–7 reserved for `S-08`. */
+/** Slot 7 reserved. */
 const TRAFFIC_STRIDE = 8;
+
+/** Bit flags stored in {@link Traffic.Flags}. */
+export const TrafficFlags = {
+  Active: 1 << 0,
+  /** Travelling from the edge's `b` node toward its `a` node. */
+  Reverse: 1 << 1,
+} as const;
 
 const CARS_OFFSET = HEADER_INT32S;
 const PASSENGERS_OFFSET = CARS_OFFSET + MAX_PLAYERS * CAR_STRIDE;
@@ -238,7 +300,8 @@ export interface World {
   readonly data: Int32Array;
 
   /**
-   * Static city collision geometry (`S-07`), or `undefined` for an empty world.
+   * The city this run is played on (`W-01`), or `undefined` for a world with no
+   * city loaded.
    *
    * An **input**, not state: it never changes during a run, so it is shared by
    * reference across every copy and is deliberately **not serialised and not
@@ -246,16 +309,12 @@ export interface World {
    * caller reattaches it, and {@link Header.CityHash} is what lets them check
    * they reattached the right one.
    */
-  readonly statics?: StaticGeometry | undefined;
+  readonly city?: RuntimeCity | undefined;
 }
 
 /** A fresh world at tick 0. */
-export function createWorld(
-  seed: number,
-  playerCount = 1,
-  cityHash = 0,
-  statics?: StaticGeometry,
-): World {
+export function createWorld(seed: number, playerCount = 1, city?: RuntimeCity): World {
+  const cityHash = city?.packed.contentHash ?? 0;
   const data = new Int32Array(WORLD_INT32S);
 
   data[Header.FormatVersion] = WORLD_FORMAT_VERSION;
@@ -265,13 +324,21 @@ export function createWorld(
   data[Header.PlayerCount] = Math.max(1, Math.min(playerCount, MAX_PLAYERS));
   data[Header.Flags] = WorldFlags.Running;
 
-  const world: World = { data, statics };
-  rngSeed(rngOf(world), seed);
+  const world: World = { data, city };
+  // The city's content hash is folded into the run seed, not merely recorded
+  // beside it (ADR 0005). Editing the city therefore changes every stream
+  // derived from it, so old leaderboard entries stop matching rather than
+  // silently replaying against geometry that has moved.
+  rngSeed(rngOf(world), foldCityHashIntoSeed(seed, cityHash));
+  // Offset so the two streams never coincide, and so traffic is a function of
+  // the run seed alone rather than of anything a player does.
+  rngSeed(trafficRngOf(world), foldCityHashIntoSeed(seed ^ 0x5a17_c0de, cityHash));
 
   for (let slot = 0; slot < MAX_PLAYERS; slot += 1) {
     setCar(world, slot, Car.CarriedPassenger, NO_PASSENGER);
   }
   initClocks(world);
+  initTraffic(world);
 
   return world;
 }
@@ -283,9 +350,9 @@ export function createWorld(
  * above all — still points at the *original* and must be re-derived.
  */
 export function cloneWorld(world: World): World {
-  // `statics` is carried by reference on purpose: it is immutable input, and
+  // `city` is carried by reference on purpose: it is immutable input, and
   // copying a city's worth of geometry 30 times a second would be absurd.
-  return { data: new Int32Array(world.data), statics: world.statics };
+  return { data: new Int32Array(world.data), city: world.city };
 }
 
 // ---------------------------------------------------------------------------
@@ -325,6 +392,15 @@ export function isRunning(world: World): boolean {
  */
 export function rngOf(world: World): RngState {
   return world.data.subarray(Header.Rng, Header.Rng + RNG_LANES);
+}
+
+/**
+ * A live view of the **traffic** generator lanes.
+ *
+ * Deliberately separate from {@link rngOf}. See {@link Header.TrafficRng}.
+ */
+export function trafficRngOf(world: World): RngState {
+  return world.data.subarray(Header.TrafficRng, Header.TrafficRng + RNG_LANES);
 }
 
 /** Offset of one cab's record. */

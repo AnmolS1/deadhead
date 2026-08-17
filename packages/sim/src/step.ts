@@ -8,6 +8,9 @@
 import { stepCar } from './car.js';
 import { stepClocks, stepRunEnd } from './clock.js';
 import { sweepCar } from './collide.js';
+import { stepFares } from './fare.js';
+import { stepPassengers } from './passengers.js';
+import { stepTraffic } from './traffic.js';
 import type { Inputs } from './types.js';
 import {
   Car,
@@ -59,11 +62,24 @@ export function step(world: World, inputs: Inputs): World {
     // Collision runs per cab, immediately after that cab moves, so the sweep
     // sees the movement it is resolving. There is no car-car collision in v1
     // (DESIGN.md §2.3), so slot order still cannot matter.
-    if (next.statics !== undefined) sweepCar(next, slot, next.statics, fromX, fromY);
+    if (next.city !== undefined) sweepCar(next, slot, next.city.statics, fromX, fromY);
   }
 
-  // S-09's passenger pickup and drop-off resolution slots in HERE, between
-  // movement and the clocks.
+  // NPC traffic advances first and reads nothing about any cab — see the note
+  // at the top of traffic.ts. Its position in the tick is therefore arbitrary,
+  // and that is exactly the property worth preserving.
+  stepTraffic(next);
+
+  // Passengers spawn, lose patience and despawn here — after movement, before
+  // the clocks. S-10's pickup and drop-off resolution slots in immediately
+  // after this.
+  stepPassengers(next);
+
+  // Pickups, drop-offs and bails resolve here — after passengers, before the
+  // clocks. A cab that collects someone this tick is already carrying when
+  // clock.ts decides whether the deadhead clock moves, which is exactly what
+  // makes the pickup tick not burn deadhead.
+  stepFares(next);
 
   // Clocks run last, on purpose. The rule in clock.ts is written in terms of
   // end-of-tick state — "the deadhead clock decrements iff the cab is empty at
