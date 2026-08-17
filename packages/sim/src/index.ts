@@ -127,3 +127,5 @@ export {
   isRush,
   passengerCount,
 } from './passengers.js';
+
+export { FareTuning, cashOf, fareValue, waitingCount, withinRadius } from './fare.js';

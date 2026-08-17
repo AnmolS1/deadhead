@@ -8,6 +8,7 @@
 import { stepCar } from './car.js';
 import { stepClocks, stepRunEnd } from './clock.js';
 import { sweepCar } from './collide.js';
+import { stepFares } from './fare.js';
 import { stepPassengers } from './passengers.js';
 import type { Inputs } from './types.js';
 import {
@@ -67,6 +68,12 @@ export function step(world: World, inputs: Inputs): World {
   // the clocks. S-10's pickup and drop-off resolution slots in immediately
   // after this.
   stepPassengers(next);
+
+  // Pickups, drop-offs and bails resolve here — after passengers, before the
+  // clocks. A cab that collects someone this tick is already carrying when
+  // clock.ts decides whether the deadhead clock moves, which is exactly what
+  // makes the pickup tick not burn deadhead.
+  stepFares(next);
 
   // Clocks run last, on purpose. The rule in clock.ts is written in terms of
   // end-of-tick state — "the deadhead clock decrements iff the cab is empty at
