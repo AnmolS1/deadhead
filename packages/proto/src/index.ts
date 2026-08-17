@@ -9,3 +9,10 @@
 
 /** Bumped whenever an encoding changes shape. Every format here is versioned. */
 export const PROTO_VERSION = 0;
+
+export {
+  CITY_FORMAT_VERSION,
+  INPUT_FORMAT_VERSION,
+  NET_FORMAT_VERSION,
+  WORLD_FORMAT_VERSION,
+} from './format.js';
