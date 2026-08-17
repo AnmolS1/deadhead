@@ -174,7 +174,7 @@ describe('the fare clock', () => {
 });
 
 describe('delivery', () => {
-  it('counts a completed delivery and returns deadhead time', () => {
+  it('counts a completed delivery', () => {
     let world = createWorld(1, 1);
     for (let i = 0; i < 100; i += 1) world = step(world, [0]);
     const before = deadhead(world);
@@ -184,6 +184,22 @@ describe('delivery', () => {
 
     expect(getCar(world, 0, Car.Deliveries)).toBe(1);
     expect(deadhead(world)).toBe(before + ClockTuning.deliveryBonusTicks);
+  });
+
+  it('does not refill the bank, so three minutes is the run', () => {
+    // ADR 0006. A bank that refills makes a good player's run open-ended, and a
+    // leaderboard whose top entry is "however long I kept going" measures
+    // endurance rather than routing.
+    expect(ClockTuning.deliveryBonusTicks).toBe(0);
+
+    let world = createWorld(1, 1);
+    for (let i = 0; i < 100; i += 1) world = step(world, [0]);
+    const before = deadhead(world);
+
+    beginFare(world, 0, 1);
+    endFare(world, 0, true);
+
+    expect(deadhead(world)).toBe(before);
   });
 
   it('pays nothing for a bail — no delivery, no time back', () => {
