@@ -5,9 +5,9 @@
  * attach the car model, collision, traffic, passengers, fares and clocks to it,
  * in that order.
  */
-import { Car, cloneWorld, getPlayerCount, getTick, setCar, type World } from './world.js';
-import { Header } from './world.js';
+import { stepCar } from './car.js';
 import type { Inputs } from './types.js';
+import { Car, Header, cloneWorld, getPlayerCount, getTick, setCar, type World } from './world.js';
 
 /**
  * Advance the world by exactly one tick.
@@ -31,11 +31,18 @@ export function step(world: World, inputs: Inputs): World {
 
   next.data[Header.Tick] = getTick(world) + 1;
 
-  // Recorded now so a dropped packet repeats the last byte rather than
-  // stalling the cab (M-03). The car model in S-06 reads it from here.
+  // Inputs are recorded before anything reads them, so a dropped packet
+  // repeats the last byte rather than stalling the cab (M-03).
   const players = getPlayerCount(next);
   for (let slot = 0; slot < players; slot += 1) {
     setCar(next, slot, Car.LastInput, (inputs[slot] ?? 0) & 0xff);
+  }
+
+  // Every cab advances from the same pre-step state, so slot order cannot
+  // matter. It will matter the moment S-08 collision or S-09 contested pickup
+  // land, and both are specified to resolve by slot order deterministically.
+  for (let slot = 0; slot < players; slot += 1) {
+    stepCar(next, slot);
   }
 
   return next;
