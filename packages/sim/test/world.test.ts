@@ -44,15 +44,54 @@ function* prng(seed: number): Generator<number> {
   }
 }
 
-/** Fill every slot of a world with arbitrary values, keeping it structurally valid. */
-function randomise(world: World, seed: number): World {
+/**
+ * Fill every slot with arbitrary bits. Deliberately *not* structurally
+ * plausible — `playerCount` and `carriedPassenger` end up as garbage. This is
+ * the right input for testing that serialisation is a faithful byte pipe, and
+ * the wrong input for testing anything about sim behaviour.
+ */
+function randomiseBits(world: World, seed: number): World {
   const rng = prng(seed);
   for (let i = 0; i < WORLD_INT32S; i += 1) {
     world.data[i] = rng.next().value;
   }
   world.data[Header.FormatVersion] = WORLD_FORMAT_VERSION;
-  // Keep the generator out of its absorbing fixed point.
+  // Header counts must stay inside their capacities or deserialize rejects the
+  // world — which is the point of those checks, tested separately below.
+  world.data[Header.PlayerCount] = 1 + (Math.abs(rng.next().value) % MAX_PLAYERS);
+  world.data[Header.PassengerCount] = Math.abs(rng.next().value) % (MAX_PASSENGERS + 1);
+  world.data[Header.TrafficCount] = Math.abs(rng.next().value) % (MAX_TRAFFIC + 1);
+  // The generator must not be in its absorbing fixed point. Setting one lane is
+  // enough, since rngIsDegenerate requires all four to be zero.
   world.data[Header.Rng] = rng.next().value || 1;
+  return world;
+}
+
+/**
+ * A world that a real resync could actually carry: a coherent header from
+ * `createWorld`, advanced by real steps, with only the *entity* fields
+ * scrambled. `randomiseBits` covers the byte pipe; this covers the shape.
+ */
+function plausibleWorld(seed: number, ticks: number): World {
+  let world = createWorld(seed, 1 + (Math.abs(seed) % MAX_PLAYERS));
+  for (let i = 0; i < ticks; i += 1) world = step(world, [i & 0xff, (i >> 2) & 0xff]);
+
+  const rng = prng(seed || 1);
+  for (let slot = 0; slot < MAX_PLAYERS; slot += 1) {
+    setCar(world, slot, Car.X, rng.next().value);
+    setCar(world, slot, Car.Y, rng.next().value);
+    setCar(world, slot, Car.Heading, rng.next().value & 0xffff);
+    setCar(world, slot, Car.VelocityX, rng.next().value);
+    setCar(world, slot, Car.Cash, Math.abs(rng.next().value) % 100_000);
+  }
+  for (let slot = 0; slot < MAX_PASSENGERS; slot += 1) {
+    setPassenger(world, slot, Passenger.X, rng.next().value);
+    setPassenger(world, slot, Passenger.Y, rng.next().value);
+  }
+  for (let slot = 0; slot < MAX_TRAFFIC; slot += 1) {
+    setTraffic(world, slot, Traffic.X, rng.next().value);
+    setTraffic(world, slot, Traffic.Heading, rng.next().value & 0xffff);
+  }
   return world;
 }
 
@@ -146,7 +185,7 @@ describe('cloneWorld', () => {
   });
 
   it('copies every slot', () => {
-    const original = randomise(createWorld(1), 0xc0ffee);
+    const original = randomiseBits(createWorld(1), 0xc0ffee);
     expect(Array.from(cloneWorld(original).data)).toEqual(Array.from(original.data));
     expect(hashWorld(cloneWorld(original))).toBe(hashWorld(original));
   });
@@ -171,7 +210,7 @@ describe('serialize / deserialize', () => {
     // S-05's done-when. If this ever fails, every replay and every leaderboard
     // entry is suspect.
     for (let iteration = 0; iteration < 1000; iteration += 1) {
-      const world = randomise(createWorld(iteration), 0x1234 + iteration);
+      const world = randomiseBits(createWorld(iteration), 0x1234 + iteration);
 
       const bytes = serialize(world);
       const restored = deserialize(bytes);
@@ -179,6 +218,30 @@ describe('serialize / deserialize', () => {
       expect(Array.from(restored.data)).toEqual(Array.from(world.data));
       expect(hashWorld(restored)).toBe(hashWorld(world));
       expect(Array.from(serialize(restored))).toEqual(Array.from(bytes));
+    }
+  });
+
+  it('round-trips structurally plausible worlds and keeps stepping from them', () => {
+    // The fuzz above proves serialisation is a faithful byte pipe, but a world
+    // of uniformly random int32s is not a world any run could produce. This
+    // covers the shape a real M-10 resync carries: coherent header, real tick
+    // history, scrambled entity fields — and then checks the restored world
+    // continues in lockstep rather than merely comparing equal.
+    for (let iteration = 0; iteration < 200; iteration += 1) {
+      const world = plausibleWorld(iteration, 5 + (iteration % 20));
+      const restored = deserialize(serialize(world));
+
+      expect(hashWorld(restored)).toBe(hashWorld(world));
+      expect(getPlayerCount(restored)).toBe(getPlayerCount(world));
+      expect(getTick(restored)).toBe(getTick(world));
+
+      let a = world;
+      let b = restored;
+      for (let i = 0; i < 20; i += 1) {
+        a = step(a, [i & 0xff, 1]);
+        b = step(b, [i & 0xff, 1]);
+      }
+      expect(hashWorld(b)).toBe(hashWorld(a));
     }
   });
 
@@ -237,6 +300,32 @@ describe('serialize / deserialize', () => {
     expect(() => deserialize(serialize(world))).toThrow(/zero/);
   });
 
+  it('rejects header counts outside their capacity', () => {
+    // Every loop in the sim is bounded by one of these. An out-of-range count
+    // does not throw on its own: a typed-array write past the end is silently
+    // dropped, so step() would just spin writing nowhere. Harmless while step()
+    // only records an input byte; not harmless once S-06 reads those slots, and
+    // this arrives from a public submission endpoint in B-07.
+    const forge = (field: number, value: number): Uint8Array => {
+      const world = createWorld(1, 2);
+      world.data[field] = value;
+      return serialize(world);
+    };
+
+    expect(() => deserialize(forge(Header.PlayerCount, 5000))).toThrow(/playerCount/);
+    expect(() => deserialize(forge(Header.PlayerCount, 0))).toThrow(/playerCount/);
+    expect(() => deserialize(forge(Header.PlayerCount, -1))).toThrow(/playerCount/);
+    expect(() => deserialize(forge(Header.PassengerCount, MAX_PASSENGERS + 1))).toThrow(
+      /passengerCount/,
+    );
+    expect(() => deserialize(forge(Header.TrafficCount, -1))).toThrow(/trafficCount/);
+
+    // The boundaries themselves are legal.
+    expect(() => deserialize(forge(Header.PlayerCount, MAX_PLAYERS))).not.toThrow();
+    expect(() => deserialize(forge(Header.PassengerCount, MAX_PASSENGERS))).not.toThrow();
+    expect(() => deserialize(forge(Header.TrafficCount, 0))).not.toThrow();
+  });
+
   it('deserialises from a buffer with a non-zero byteOffset', () => {
     // Worth pinning: DataView over a subarray must respect byteOffset, and
     // network reads routinely hand you a slice of a larger buffer.
@@ -264,14 +353,14 @@ describe('hashWorld', () => {
     };
 
     for (let i = 0; i < 200; i += 1) {
-      const world = randomise(createWorld(i), 0xbeef + i);
+      const world = randomiseBits(createWorld(i), 0xbeef + i);
       expect(hashWorld(world)).toBe(fnv(serialize(world)));
     }
   });
 
   it('is always an unsigned 32-bit integer', () => {
     for (let i = 0; i < 500; i += 1) {
-      const hash = hashWorld(randomise(createWorld(i), i));
+      const hash = hashWorld(randomiseBits(createWorld(i), i));
       expect(Number.isInteger(hash)).toBe(true);
       expect(hash).toBeGreaterThanOrEqual(0);
       expect(hash).toBeLessThan(0x1_0000_0000);

@@ -351,6 +351,12 @@ export function serialize(world: World): Uint8Array {
  * - **Degenerate generator** — the all-zero xorshift state emits zero forever,
  *   perfectly deterministically. A replay carrying it would *validate cleanly*
  *   while producing a constant world. See `rng.ts`.
+ * - **Counts outside their capacity** — every loop in the sim is bounded by one
+ *   of these. An out-of-range count does not throw, because a typed-array write
+ *   past the end is *silently dropped*: `step()` would simply spin for a few
+ *   thousand iterations writing nowhere. Harmless while `step()` only records
+ *   an input byte; not harmless once `S-06` reads those slots back, and this
+ *   arrives from a public submission endpoint in `B-07`.
  */
 export function deserialize(bytes: Uint8Array): World {
   if (bytes.byteLength !== WORLD_BYTES) {
@@ -373,7 +379,18 @@ export function deserialize(bytes: Uint8Array): World {
     throw new RangeError('world carries the all-zero PRNG state, which emits zero forever');
   }
 
+  requireCount(data[Header.PlayerCount], 1, MAX_PLAYERS, 'playerCount');
+  requireCount(data[Header.PassengerCount], 0, MAX_PASSENGERS, 'passengerCount');
+  requireCount(data[Header.TrafficCount], 0, MAX_TRAFFIC, 'trafficCount');
+
   return world;
+}
+
+/** Reject a header count that would let a loop in the sim run off the end of a region. */
+function requireCount(value: number, lo: number, hi: number, name: string): void {
+  if (value < lo || value > hi) {
+    throw new RangeError(`world ${name} is ${value}, expected ${lo}..${hi}`);
+  }
 }
 
 // ---------------------------------------------------------------------------
