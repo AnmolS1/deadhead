@@ -131,11 +131,15 @@ export interface CameraTarget {
  * ctx.translate(-view.x, -view.y);
  * ```
  *
- * The negated rotation is not a typo. `rotation` is the world-space angle that
- * ends up pointing at the top of the screen, so drawing it means rotating the
- * world by its inverse. Writing the sequence down here rather than exporting a
- * `worldToScreen` is deliberate: `C-04` owns the transform, and a second copy
- * of it living in this file is a thing that drifts.
+ * The negated rotation is not a typo. **`rotation` is how far the world is
+ * turned, not a direction**: zero draws the world unrotated, and a world
+ * direction θ appears on screen at `θ − rotation`, measured from +x with y
+ * downward. Straight up the screen is `−π/2` in that frame, which is why
+ * {@link Camera.desiredRotation} sets `heading + π/2` to point the cab up.
+ *
+ * Writing the sequence down here rather than exporting a `worldToScreen` is
+ * deliberate: `C-04` owns the transform, and a second copy of it living in this
+ * file is a thing that drifts. `render/viewport.ts` is the one implementation.
  */
 export interface CameraView {
   /** Centre of the view, in world units, with {@link CameraView.shakeX} already added. */
