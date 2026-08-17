@@ -25,8 +25,11 @@
  *
  * - **v2** (`S-09`): the passenger region's reserved slots 3–6 became
  *   `Destination`, `SpawnTick`, `PatienceTicks` and `Carrier`.
+ * - **v3** (`S-08`): header slots 12–15 became a second, traffic-only PRNG, and
+ *   the traffic region's reserved slots 4–6 became `Edge`, `Progress` and
+ *   `Speed`.
  */
-export const WORLD_FORMAT_VERSION = 2;
+export const WORLD_FORMAT_VERSION = 3;
 
 /** Layout of a recorded input log. Owned by `S-12`. */
 export const INPUT_FORMAT_VERSION = 0;

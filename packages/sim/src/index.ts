@@ -76,6 +76,7 @@ export {
   PassengerFlags,
   Passenger,
   Traffic,
+  TrafficFlags,
   WORLD_BYTES,
   WORLD_INT32S,
   WorldFlags,
@@ -93,6 +94,7 @@ export {
   hashWorld,
   isRunning,
   rngOf,
+  trafficRngOf,
   serialize,
   setCar,
   setPassenger,
@@ -129,3 +131,7 @@ export {
 } from './passengers.js';
 
 export { FareTuning, cashOf, fareValue, waitingCount, withinRadius } from './fare.js';
+
+export { TrafficTuning, isTrafficActive, trafficCount } from './traffic.js';
+
+export type { NavGraph } from './city.js';

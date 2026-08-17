@@ -10,6 +10,7 @@ import { stepClocks, stepRunEnd } from './clock.js';
 import { sweepCar } from './collide.js';
 import { stepFares } from './fare.js';
 import { stepPassengers } from './passengers.js';
+import { stepTraffic } from './traffic.js';
 import type { Inputs } from './types.js';
 import {
   Car,
@@ -63,6 +64,11 @@ export function step(world: World, inputs: Inputs): World {
     // (DESIGN.md §2.3), so slot order still cannot matter.
     if (next.city !== undefined) sweepCar(next, slot, next.city.statics, fromX, fromY);
   }
+
+  // NPC traffic advances first and reads nothing about any cab — see the note
+  // at the top of traffic.ts. Its position in the tick is therefore arbitrary,
+  // and that is exactly the property worth preserving.
+  stepTraffic(next);
 
   // Passengers spawn, lose patience and despawn here — after movement, before
   // the clocks. S-10's pickup and drop-off resolution slots in immediately

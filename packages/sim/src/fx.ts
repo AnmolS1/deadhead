@@ -209,6 +209,19 @@ export function fxSqrt(v: number): number {
 }
 
 /**
+ * Integer square root of a **plain integer** (not 16.16), for `n` in
+ * `[0, 2^48)`. Exact, and no `Math.sqrt`.
+ *
+ * Exported because measuring distances at map scale cannot be done in 16.16 at
+ * all: squaring an absolute coordinate overflows (ADR 0003). `S-08` uses this
+ * to measure road lengths in sixteenths of a unit, where the squares stay
+ * exact as `Number`s.
+ */
+export function fxIntSqrt(n: number): number {
+  return n <= 0 ? 0 : isqrt(n);
+}
+
+/**
  * Integer square root by the classic restoring shift-and-subtract method, for
  * `n` in `[0, 2^48)`. Every value stays an exact integer well under 2^53.
  */

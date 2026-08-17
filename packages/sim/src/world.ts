@@ -46,6 +46,7 @@
 import { WORLD_FORMAT_VERSION, foldCityHashIntoSeed } from '@deadhead/proto';
 
 import { initClocks } from './clock.js';
+import { initTraffic } from './traffic.js';
 import type { RuntimeCity } from './city.js';
 import { RNG_LANES, rngIsDegenerate, rngSeed, type RngState } from './rng.js';
 
@@ -91,6 +92,16 @@ export const Header = {
   Flags: 7,
   /** Generator state, {@link RNG_LANES} lanes. See {@link rngOf}. */
   Rng: 8,
+  /**
+   * A **second, independent** generator, for NPC traffic only.
+   *
+   * `S-08` requires that nothing a player does may alter an NPC's trajectory.
+   * Sharing one stream would break that in a way that is easy to miss: picking
+   * up a passenger changes the waiting population, which changes whether a
+   * spawn is attempted, which changes how many numbers are drawn — and every
+   * NPC downstream would drift. Two streams, no coupling.
+   */
+  TrafficRng: 12,
 } as const;
 
 /** Run-level bit flags stored in {@link Header.Flags}. */
@@ -236,17 +247,30 @@ export const PassengerFlags = {
  * needs to be *transmitted*, which still holds.
  */
 export const Traffic = {
-  /** Occupancy and state bits. Owned by `S-08`. Zero means the slot is free. */
+  /** Occupancy and direction bits — see {@link TrafficFlags}. Zero means the slot is free. */
   Flags: 0,
-  /** Position, 16.16. */
+  /** Position, 16.16. Derived each tick from {@link Edge} and {@link Progress}. */
   X: 1,
   Y: 2,
-  /** Facing, `uint16` turn. */
+  /** Facing, `uint16` turn. Constant along an edge, recomputed at each junction. */
   Heading: 3,
+  /** Index into the city's edge list. */
+  Edge: 4,
+  /** Distance travelled along the current edge, 16.16. */
+  Progress: 5,
+  /** Units per tick, 16.16. Fixed for this vehicle's lifetime. */
+  Speed: 6,
 } as const;
 
-/** Slots 4–7 reserved for `S-08`. */
+/** Slot 7 reserved. */
 const TRAFFIC_STRIDE = 8;
+
+/** Bit flags stored in {@link Traffic.Flags}. */
+export const TrafficFlags = {
+  Active: 1 << 0,
+  /** Travelling from the edge's `b` node toward its `a` node. */
+  Reverse: 1 << 1,
+} as const;
 
 const CARS_OFFSET = HEADER_INT32S;
 const PASSENGERS_OFFSET = CARS_OFFSET + MAX_PLAYERS * CAR_STRIDE;
@@ -306,11 +330,15 @@ export function createWorld(seed: number, playerCount = 1, city?: RuntimeCity): 
   // derived from it, so old leaderboard entries stop matching rather than
   // silently replaying against geometry that has moved.
   rngSeed(rngOf(world), foldCityHashIntoSeed(seed, cityHash));
+  // Offset so the two streams never coincide, and so traffic is a function of
+  // the run seed alone rather than of anything a player does.
+  rngSeed(trafficRngOf(world), foldCityHashIntoSeed(seed ^ 0x5a17_c0de, cityHash));
 
   for (let slot = 0; slot < MAX_PLAYERS; slot += 1) {
     setCar(world, slot, Car.CarriedPassenger, NO_PASSENGER);
   }
   initClocks(world);
+  initTraffic(world);
 
   return world;
 }
@@ -364,6 +392,15 @@ export function isRunning(world: World): boolean {
  */
 export function rngOf(world: World): RngState {
   return world.data.subarray(Header.Rng, Header.Rng + RNG_LANES);
+}
+
+/**
+ * A live view of the **traffic** generator lanes.
+ *
+ * Deliberately separate from {@link rngOf}. See {@link Header.TrafficRng}.
+ */
+export function trafficRngOf(world: World): RngState {
+  return world.data.subarray(Header.TrafficRng, Header.TrafficRng + RNG_LANES);
 }
 
 /** Offset of one cab's record. */
