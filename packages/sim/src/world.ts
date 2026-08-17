@@ -174,15 +174,53 @@ export const CarFlags = {
  * what later tasks build the wrong thing on top of.
  */
 export const Passenger = {
-  /** Occupancy and state bits. Owned by `S-09`. Zero means the slot is free. */
+  /** Occupancy, class and state bits — see {@link PassengerFlags}. Zero means the slot is free. */
   Flags: 0,
-  /** Position, 16.16. */
+  /** Where they are standing, 16.16. */
   X: 1,
   Y: 2,
+  /** Index into the city's destination list. `W-06` names it; `S-10` prices the trip to it. */
+  Destination: 3,
+  /** Tick they appeared. `S-10` prices a Meter fare from how long it has run. */
+  SpawnTick: 4,
+  /**
+   * Ticks of patience left.
+   *
+   * Counts down while waiting for *both* classes — an ignored passenger gives
+   * up and leaves. It additionally counts down while **carried** for `Meter`
+   * only: that is their failure mode (they bail and you get nothing). A `Rush`
+   * passenger never bails; their fare decays to a floor instead
+   * (`DESIGN.md` §2.1).
+   */
+  PatienceTicks: 5,
+  /** Cab carrying them, or {@link NO_CARRIER}. */
+  Carrier: 6,
 } as const;
 
-/** Slots 3–7 reserved for `S-09`. */
+/** Slot 7 reserved. */
 const PASSENGER_STRIDE = 8;
+
+/** {@link Passenger.Carrier} when nobody has them. */
+export const NO_CARRIER = -1;
+
+/** Bit flags stored in {@link Passenger.Flags}. */
+export const PassengerFlags = {
+  /** The slot is occupied. Cleared on despawn, delivery, bail or expiry. */
+  Active: 1 << 0,
+  /**
+   * `Rush` rather than `Meter`. The two classes have **opposite** incentives —
+   * a Meter fare grows the longer it runs, a Rush fare decays from a maximum —
+   * which is what makes two passengers on the same corner a real decision
+   * (`DESIGN.md` §2.1).
+   */
+  Rush: 1 << 1,
+  /**
+   * A cab has committed to this passenger and others cannot take them for a
+   * short window. Reserved for `M-08`'s hail lock, so contested pickups are
+   * decided by positioning and braking rather than a frame-perfect coin flip.
+   */
+  HailLocked: 1 << 2,
+} as const;
 
 /**
  * Fields of one NPC vehicle.

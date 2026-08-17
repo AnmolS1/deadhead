@@ -71,7 +71,9 @@ export {
   MAX_PASSENGERS,
   MAX_PLAYERS,
   MAX_TRAFFIC,
+  NO_CARRIER,
   NO_PASSENGER,
+  PassengerFlags,
   Passenger,
   Traffic,
   WORLD_BYTES,
@@ -116,3 +118,12 @@ export type { CollisionResult, StaticGeometry } from './collide.js';
 export { emptyCity, prepareCity } from './city.js';
 
 export type { RuntimeCity } from './city.js';
+
+export {
+  PassengerTuning,
+  demandAt,
+  despawnPassenger,
+  isPassengerActive,
+  isRush,
+  passengerCount,
+} from './passengers.js';

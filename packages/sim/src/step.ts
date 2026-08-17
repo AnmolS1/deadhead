@@ -8,6 +8,7 @@
 import { stepCar } from './car.js';
 import { stepClocks, stepRunEnd } from './clock.js';
 import { sweepCar } from './collide.js';
+import { stepPassengers } from './passengers.js';
 import type { Inputs } from './types.js';
 import {
   Car,
@@ -62,8 +63,10 @@ export function step(world: World, inputs: Inputs): World {
     if (next.city !== undefined) sweepCar(next, slot, next.city.statics, fromX, fromY);
   }
 
-  // S-09's passenger pickup and drop-off resolution slots in HERE, between
-  // movement and the clocks.
+  // Passengers spawn, lose patience and despawn here — after movement, before
+  // the clocks. S-10's pickup and drop-off resolution slots in immediately
+  // after this.
+  stepPassengers(next);
 
   // Clocks run last, on purpose. The rule in clock.ts is written in terms of
   // end-of-tick state — "the deadhead clock decrements iff the cab is empty at

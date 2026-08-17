@@ -22,8 +22,11 @@
  * a log is replayed through `step()`, not deserialised — but a change to the
  * world layout usually means the sim changed too, which does. See the note on
  * `S-14` about never editing a golden to make a test pass.
+ *
+ * - **v2** (`S-09`): the passenger region's reserved slots 3–6 became
+ *   `Destination`, `SpawnTick`, `PatienceTicks` and `Carrier`.
  */
-export const WORLD_FORMAT_VERSION = 1;
+export const WORLD_FORMAT_VERSION = 2;
 
 /** Layout of a recorded input log. Owned by `S-12`. */
 export const INPUT_FORMAT_VERSION = 0;
