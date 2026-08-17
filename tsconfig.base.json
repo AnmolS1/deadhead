@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+
+    // Every package is a composite project so `tsc --build` from the root
+    // type-checks the whole graph in dependency order and emits the .d.ts
+    // files that cross-package imports resolve against.
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+
+    "strict": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "exactOptionalPropertyTypes": true,
+
+    // NodeNext + verbatimModuleSyntax means relative imports carry an explicit
+    // `.js` extension. That is deliberate: `packages/sim` has to be importable
+    // from bare Node and from workerd, and extensionless specifiers are not.
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  }
+}

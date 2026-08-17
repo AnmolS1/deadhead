@@ -1,0 +1,15 @@
+{
+  "name": "@deadhead/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The ponderance-play Worker: Durable Objects, D1, auth, replay validator.",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deadhead/proto": "*",
+    "@deadhead/sim": "*"
+  }
+}

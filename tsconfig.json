@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Solution-style root config. It holds no files of its own; `tsc --build`
+  // walks the references and builds each package in dependency order.
+  "files": [],
+  "references": [
+    { "path": "./packages/proto" },
+    { "path": "./packages/sim" },
+    { "path": "./packages/client" },
+    { "path": "./packages/server" },
+    { "path": "./tools/cityedit" },
+    { "path": "./tools/loadtest" }
+  ]
+}

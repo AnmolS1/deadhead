@@ -1,0 +1,13 @@
+node_modules
+dist
+*.tsbuildinfo
+package-lock.json
+
+# Hard invariant #3 in CLAUDE.md — never read, never format.
+_to_ignore
+
+# Privately tracked; not this repo's business to reformat.
+docs
+CLAUDE.md
+
+.remember

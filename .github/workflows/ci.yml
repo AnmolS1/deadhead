@@ -1,0 +1,46 @@
+name: ci
+
+on:
+  pull_request:
+  # `dev` is deliberately not listed. Work lands on `dev` and reaches `prod` by
+  # PR, so a push trigger on `dev` would run the same commit twice.
+  push:
+    branches: [prod]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: format
+        run: npm run format:check
+
+      - name: lint
+        run: npm run lint
+
+      - name: typecheck
+        run: npm run typecheck
+
+      # S-02. Runs after typecheck because it scans dist/, and it self-tests by
+      # feeding ESLint deliberate violations. If this is ever green while the
+      # sim is impure, multiplayer and leaderboards are both silently wrong.
+      - name: sim purity
+        run: npm run lint:sim-purity
+
+      - name: test
+        run: npm test

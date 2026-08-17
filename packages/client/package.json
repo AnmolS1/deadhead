@@ -1,0 +1,15 @@
+{
+  "name": "@deadhead/client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Canvas renderer, input, audio and UI. Imports the sim; never mutates it.",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deadhead/proto": "*",
+    "@deadhead/sim": "*"
+  }
+}

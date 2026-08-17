@@ -1,0 +1,15 @@
+{
+  "name": "@deadhead/loadtest",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Headless bot clients for the M-14 load test.",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deadhead/proto": "*",
+    "@deadhead/sim": "*"
+  }
+}
