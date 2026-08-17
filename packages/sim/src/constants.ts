@@ -70,43 +70,14 @@ export const SIM_VERSION = 0;
 //
 // `S-03` implements the arithmetic and restates this in `fx.ts`.
 
-/**
- * **Exclusive** bound on magnitude in 16.16. See STORAGE BOUND above.
- *
- * Note the name says `LIMIT`, not `MAX`, because 32_768 is *not* attainable:
- * `32_768 * 2^16` is exactly `2^31`, which overflows int32. The largest
- * representable positive value is one ULP below, 32_767.99998…. Compare with
- * `<`, never `<=`.
- */
-export const FX_MAGNITUDE_LIMIT = 32_768;
-
-/**
- * **Inclusive** bound on an operand that may be squared in 16.16 without
- * overflow — 181 itself is fine, 182 is not. See ARITHMETIC BOUND above.
- *
- * The asymmetry with {@link FX_MAGNITUDE_LIMIT} is deliberate and is why the
- * names differ: `MAX` is attainable, `LIMIT` is not. Always apply this to a
- * *relative offset*, never to an absolute coordinate.
- */
-export const FX_MAX_SQUARABLE = 181;
-
-/**
- * Half-width of the playable world, in whole units. The city occupies
- * `[-WORLD_HALF_EXTENT, +WORLD_HALF_EXTENT]` on both axes.
- *
- * Chosen well inside the storage bound rather than at it, because intermediate
- * values in collision and camera code routinely exceed the coordinates that
- * produced them. It is also far larger than `W-03` should need — that task
- * targets a 25–40 s full crossing and is explicitly told to resist making the
- * city big.
- *
- * Note this is ~11x the arithmetic bound, which is the point of the warning
- * above: a position is representable but not squarable.
- */
-export const WORLD_HALF_EXTENT = 2048;
-
-/** Inclusive lower bound of the world on both axes, in whole units. */
-export const WORLD_MIN = -WORLD_HALF_EXTENT;
-
-/** Inclusive upper bound of the world on both axes, in whole units. */
-export const WORLD_MAX = WORLD_HALF_EXTENT;
+// The envelope constants are defined in `@deadhead/proto` and re-exported here,
+// so the city format, the wire format and the sim cannot drift apart. The
+// derivation test that proves the numbers are right lives beside the source, in
+// packages/proto/test/space.test.ts.
+export {
+  FX_MAGNITUDE_LIMIT,
+  FX_MAX_SQUARABLE,
+  WORLD_HALF_EXTENT,
+  WORLD_MAX,
+  WORLD_MIN,
+} from '@deadhead/proto';

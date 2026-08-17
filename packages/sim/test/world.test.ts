@@ -99,7 +99,7 @@ function plausibleWorld(seed: number, ticks: number): World {
 
 describe('createWorld', () => {
   it('starts a run at tick 0, running, with the recorded seed', () => {
-    const world = createWorld(1234, 4, 0xabcd);
+    const world = createWorld(1234, 4);
     expect(getTick(world)).toBe(0);
     expect(getSeed(world)).toBe(1234);
     expect(getPlayerCount(world)).toBe(4);
@@ -136,7 +136,7 @@ describe('createWorld', () => {
   });
 
   it('is fully determined by its arguments', () => {
-    expect(Array.from(createWorld(7, 3, 11).data)).toEqual(Array.from(createWorld(7, 3, 11).data));
+    expect(Array.from(createWorld(7, 3).data)).toEqual(Array.from(createWorld(7, 3).data));
     expect(hashWorld(createWorld(7))).not.toBe(hashWorld(createWorld(8)));
   });
 });

@@ -112,3 +112,7 @@ export {
 } from './collide.js';
 
 export type { CollisionResult, StaticGeometry } from './collide.js';
+
+export { emptyCity, prepareCity } from './city.js';
+
+export type { RuntimeCity } from './city.js';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { Input, packInput } from '@deadhead/proto';
+import { Input, emptyCityJson, packCity, packInput } from '@deadhead/proto';
 
 import { CarTuning } from '../src/car.js';
 import {
@@ -9,14 +9,42 @@ import {
   emptyGeometry,
   overlapsStatic,
   sweepCar,
-  type StaticGeometry,
 } from '../src/collide.js';
+import { emptyCity, prepareCity, type RuntimeCity } from '../src/city.js';
 import { FX_ONE, QUARTER_TURN, TURN, fxAbs, fxFromInt } from '../src/fx.js';
 import { step } from '../src/step.js';
-import { Car, CarFlags, createWorld, getCar, hashWorld, setCar, type World } from '../src/world.js';
+import {
+  Car,
+  CarFlags,
+  createWorld,
+  deserialize,
+  getCar,
+  getCityHash,
+  hashWorld,
+  rngOf,
+  serialize,
+  setCar,
+  type World,
+} from '../src/world.js';
+
+/** Build a real city from whole-unit boxes, so tests exercise the W-01 path. */
+function cityOf(...boxes: readonly (readonly number[])[]): RuntimeCity {
+  return prepareCity(
+    packCity({
+      ...emptyCityJson('test'),
+      buildings: boxes.map((b) => ({
+        minX: b[0] as number,
+        minY: b[1] as number,
+        maxX: b[2] as number,
+        maxY: b[3] as number,
+      })),
+    }),
+  );
+}
 
 /** A single wall spanning x in [10, 40], y in [-2, 2]. */
-const WALL = buildStaticGeometry(boxesFromUnits([[10, -2, 40, 2]]));
+const WALL_CITY = cityOf([10, -2, 40, 2]);
+const WALL = WALL_CITY.statics;
 
 const at = (x: number, y: number, heading = 0): boolean =>
   overlapsStatic(
@@ -30,14 +58,15 @@ const at = (x: number, y: number, heading = 0): boolean =>
 
 /** Place a cab and give it a velocity, then sweep it one tick. */
 function sweepFrom(
-  geometry: StaticGeometry,
+  city: RuntimeCity,
   fromX: number,
   fromY: number,
   velocityX: number,
   velocityY: number,
   heading = 0,
 ): { world: World; hit: boolean; impact: number } {
-  const world = createWorld(1, 1, 0, geometry);
+  const world = createWorld(1, 1, city);
+  const geometry = city.statics;
   setCar(world, 0, Car.X, fromX);
   setCar(world, 0, Car.Y, fromY);
   setCar(world, 0, Car.Heading, heading);
@@ -142,7 +171,7 @@ describe('narrowphase', () => {
 
 describe('the sweep', () => {
   it('does nothing when the path is clear', () => {
-    const { world, hit } = sweepFrom(WALL, 0, fxFromInt(20), FX_ONE, 0);
+    const { world, hit } = sweepFrom(WALL_CITY, 0, fxFromInt(20), FX_ONE, 0);
     expect(hit).toBe(false);
     expect(getCar(world, 0, Car.X)).toBe(FX_ONE);
     expect(getCar(world, 0, Car.VelocityX)).toBe(FX_ONE);
@@ -151,7 +180,7 @@ describe('the sweep', () => {
   it('stops a cab at the wall instead of inside it', () => {
     // Contact is at x = 8.95: the wall face is at 10 and the cab's half-length
     // is 1.1. Starting at 8 and moving a full unit crosses it.
-    const { world, hit } = sweepFrom(WALL, fxFromInt(8), 0, FX_ONE, 0);
+    const { world, hit } = sweepFrom(WALL_CITY, fxFromInt(8), 0, FX_ONE, 0);
     expect(hit).toBe(true);
     expect(getCar(world, 0, Car.VelocityX)).toBe(0);
     expect(
@@ -170,7 +199,7 @@ describe('the sweep', () => {
     // S-07's done-when. A single tick's move is subdivided so the cab can never
     // jump more than half its own width, so this holds even at speeds C-06's
     // sliders could reach — far beyond anything the current tuning produces.
-    const thin = buildStaticGeometry(boxesFromUnits([[20, -50, 21, 50]]));
+    const thin = cityOf([20, -50, 21, 50]);
     for (const speed of [1, 4, 20, 100, 400]) {
       const { world, hit } = sweepFrom(thin, fxFromInt(18), 0, fxFromInt(speed), 0);
       expect(hit, `speed ${speed}`).toBe(true);
@@ -183,14 +212,14 @@ describe('the sweep', () => {
     // the component parallel to it.
     // Side contact is at y = -2.5. Driving straight up into the wall stops the
     // Y component dead.
-    const headOn = sweepFrom(WALL, fxFromInt(25), fxFromInt(-3), 0, FX_ONE);
+    const headOn = sweepFrom(WALL_CITY, fxFromInt(25), fxFromInt(-3), 0, FX_ONE);
     expect(headOn.hit).toBe(true);
     expect(getCar(headOn.world, 0, Car.VelocityY)).toBe(0);
 
     // Approaching at an angle keeps the component parallel to the wall. That
     // is what axis-separated resolution buys, and it is why a cab scrapes along
     // a building instead of sticking to it.
-    const angled = sweepFrom(WALL, fxFromInt(25), fxFromInt(-3), FX_ONE, FX_ONE);
+    const angled = sweepFrom(WALL_CITY, fxFromInt(25), fxFromInt(-3), FX_ONE, FX_ONE);
     expect(angled.hit).toBe(true);
     expect(getCar(angled.world, 0, Car.VelocityY)).toBe(0);
     expect(getCar(angled.world, 0, Car.VelocityX)).toBe(FX_ONE);
@@ -201,7 +230,7 @@ describe('the sweep', () => {
     // The third of S-07's named hazards, and the one that reads worst in play.
     // Held against a wall under throttle, the cab must land on the same
     // position every tick — not buzz between two.
-    let world = createWorld(1, 1, 0, WALL);
+    let world = createWorld(1, 1, WALL_CITY);
     setCar(world, 0, Car.X, fxFromInt(5));
     setCar(world, 0, Car.Y, 0);
 
@@ -216,11 +245,11 @@ describe('the sweep', () => {
   });
 
   it('reports a hard impact as a crash and a scrape as neither', () => {
-    const hard = sweepFrom(WALL, fxFromInt(8), 0, CarTuning.maxSpeed, 0);
+    const hard = sweepFrom(WALL_CITY, fxFromInt(8), 0, CarTuning.maxSpeed, 0);
     expect(hard.impact).toBeGreaterThanOrEqual(CarTuning.crashImpact);
     expect(getCar(hard.world, 0, Car.Flags) & CarFlags.Crashed).toBeTruthy();
 
-    const gentle = sweepFrom(WALL, Math.round(8.9 * FX_ONE), 0, FX_ONE / 8, 0);
+    const gentle = sweepFrom(WALL_CITY, Math.round(8.9 * FX_ONE), 0, FX_ONE / 8, 0);
     expect(gentle.impact).toBeLessThan(CarTuning.crashImpact);
     expect(getCar(gentle.world, 0, Car.Flags) & CarFlags.Crashed).toBe(0);
   });
@@ -228,17 +257,10 @@ describe('the sweep', () => {
 
 describe('determinism with geometry attached', () => {
   it('produces an identical hash over 5,000 ticks against a city', () => {
-    const city = buildStaticGeometry(
-      boxesFromUnits([
-        [10, -2, 40, 2],
-        [-40, 10, -10, 14],
-        [-5, -30, 5, -20],
-        [50, 50, 90, 90],
-      ]),
-    );
+    const city = cityOf([10, -2, 40, 2], [-40, 10, -10, 14], [-5, -30, 5, -20], [50, 50, 90, 90]);
 
     const run = (): World => {
-      let world = createWorld(0xc17e, 1, 0, city);
+      let world = createWorld(0xc17e, 1, city);
       for (let tick = 0; tick < 5_000; tick += 1) {
         let input = packInput(Input.Throttle);
         if (tick % 13 < 5) input |= Input.Right;
@@ -252,34 +274,51 @@ describe('determinism with geometry attached', () => {
     expect(hashWorld(run())).toBe(hashWorld(run()));
   });
 
-  it('keeps geometry out of the hash, because it is input and not state', () => {
-    // ADR 0004. Two worlds differing only in their city must hash the same, or
-    // the replay validator would have to ship the city to compare a snapshot.
-    const a = createWorld(7, 1, 0, WALL);
-    const b = createWorld(7, 1, 0, emptyGeometry());
-    expect(hashWorld(a)).toBe(hashWorld(b));
+  it('keeps the city out of the serialised bytes, because it is input not state', () => {
+    // ADR 0004. A world serialises to the same size whatever city it is played
+    // on, and deserialize cannot restore the city — the caller reattaches it,
+    // with Header.CityHash to check against.
+    const big = cityOf([0, 0, 10, 10], [20, 20, 30, 30], [-40, -40, -30, -30]);
+    const world = createWorld(7, 1, big);
+
+    expect(serialize(world).byteLength).toBe(serialize(createWorld(7, 1, emptyCity())).byteLength);
+    expect(deserialize(serialize(world)).city).toBeUndefined();
+    expect(getCityHash(deserialize(serialize(world)))).toBe(big.packed.contentHash);
+  });
+
+  it('folds the city hash into the run seed, so a different city is a different run', () => {
+    // ADR 0005, and the inverse of what one might expect: the city's geometry
+    // is not hashed, but its CONTENT HASH is folded into the seed. So the same
+    // numeric seed on a different city is a different stream — which is what
+    // makes a city edit invalidate old leaderboard entries rather than silently
+    // rescore them against geometry that has moved.
+    const a = createWorld(7, 1, cityOf([0, 0, 10, 10]));
+    const b = createWorld(7, 1, cityOf([0, 0, 10, 11]));
+
+    expect(a.city?.packed.contentHash).not.toBe(b.city?.packed.contentHash);
+    expect(Array.from(rngOf(a))).not.toEqual(Array.from(rngOf(b)));
+    expect(hashWorld(a)).not.toBe(hashWorld(b));
+
+    // The same city is still perfectly reproducible.
+    expect(hashWorld(createWorld(7, 1, cityOf([0, 0, 10, 10])))).toBe(hashWorld(a));
   });
 
   it('shares geometry by reference across a copy', () => {
     // Copying a city's worth of boxes 30 times a second would be absurd, and
     // it never changes during a run.
-    const world = createWorld(1, 1, 0, WALL);
+    const world = createWorld(1, 1, WALL_CITY);
     const next = step(world, [0]);
-    expect(next.statics).toBe(world.statics);
+    expect(next.city).toBe(world.city);
+    expect(next.city?.statics).toBe(world.city?.statics);
   });
 
   it('never leaves a cab overlapping the city', () => {
-    const city = buildStaticGeometry(
-      boxesFromUnits([
-        [6, -6, 12, 6],
-        [20, -20, 30, 20],
-      ]),
-    );
-    let world = createWorld(3, 1, 0, city);
+    const city = cityOf([6, -6, 12, 6], [20, -20, 30, 20]);
+    let world = createWorld(3, 1, city);
     for (let tick = 0; tick < 2_000; tick += 1) {
       world = step(world, [packInput(Input.Throttle, tick % 7 < 3 ? Input.Right : Input.Left)]);
       const overlapping = overlapsStatic(
-        city,
+        city.statics,
         getCar(world, 0, Car.X),
         getCar(world, 0, Car.Y),
         getCar(world, 0, Car.Heading) & 0xffff,
@@ -298,7 +337,7 @@ describe('the arithmetic envelope', () => {
     // only small because the broadphase already discarded distant boxes.
     // Verified at the far corner of the world, where absolute coordinates are
     // 32x past the bound.
-    const corner = buildStaticGeometry(boxesFromUnits([[2000, 2000, 2040, 2040]]));
+    const corner = cityOf([2000, 2000, 2040, 2040]).statics;
     expect(
       overlapsStatic(
         corner,
@@ -322,7 +361,7 @@ describe('the arithmetic envelope', () => {
   });
 
   it('leaves every car field an exact int32 after collisions', () => {
-    let world = createWorld(9, 1, 0, WALL);
+    let world = createWorld(9, 1, WALL_CITY);
     for (let tick = 0; tick < 1_000; tick += 1) {
       world = step(world, [packInput(Input.Throttle, Input.Right)]);
     }

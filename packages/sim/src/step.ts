@@ -59,7 +59,7 @@ export function step(world: World, inputs: Inputs): World {
     // Collision runs per cab, immediately after that cab moves, so the sweep
     // sees the movement it is resolving. There is no car-car collision in v1
     // (DESIGN.md §2.3), so slot order still cannot matter.
-    if (next.statics !== undefined) sweepCar(next, slot, next.statics, fromX, fromY);
+    if (next.city !== undefined) sweepCar(next, slot, next.city.statics, fromX, fromY);
   }
 
   // S-09's passenger pickup and drop-off resolution slots in HERE, between

@@ -50,19 +50,12 @@
  * {@link TURN} / 4 is a right angle, exactly.
  */
 
-export const FX_SHIFT = 16;
+// The scale itself lives in `@deadhead/proto` — the city format validates
+// against it and `M-04` quantises against it, so a second copy here is exactly
+// the drift that makes a validator disagree with a client. See ADR 0003.
+import { FX_HALF, FX_ONE, FX_SHIFT, QUARTER_TURN, TURN } from '@deadhead/proto';
 
-/** 1.0 in 16.16. */
-export const FX_ONE = 1 << FX_SHIFT;
-
-/** 0.5 in 16.16. Used for round-half-up. */
-export const FX_HALF = FX_ONE >> 1;
-
-/** Angle units in one revolution. Angles are `uint16`, so this is also the wrap mask + 1. */
-export const TURN = 65536;
-
-/** A right angle, exactly. */
-export const QUARTER_TURN = TURN >> 2;
+export { FX_HALF, FX_ONE, FX_SHIFT, QUARTER_TURN, TURN };
 
 /** Largest int32. Returned by {@link fxDiv} on divide-by-zero. */
 const INT32_MAX = 0x7fffffff;

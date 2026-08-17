@@ -43,10 +43,10 @@
  * `data` field rather than a bare `Int32Array` — the immutable shared
  * references sit alongside the buffer, outside the hash.
  */
-import { WORLD_FORMAT_VERSION } from '@deadhead/proto';
+import { WORLD_FORMAT_VERSION, foldCityHashIntoSeed } from '@deadhead/proto';
 
 import { initClocks } from './clock.js';
-import type { StaticGeometry } from './collide.js';
+import type { RuntimeCity } from './city.js';
 import { RNG_LANES, rngIsDegenerate, rngSeed, type RngState } from './rng.js';
 
 // ---------------------------------------------------------------------------
@@ -238,7 +238,8 @@ export interface World {
   readonly data: Int32Array;
 
   /**
-   * Static city collision geometry (`S-07`), or `undefined` for an empty world.
+   * The city this run is played on (`W-01`), or `undefined` for a world with no
+   * city loaded.
    *
    * An **input**, not state: it never changes during a run, so it is shared by
    * reference across every copy and is deliberately **not serialised and not
@@ -246,16 +247,12 @@ export interface World {
    * caller reattaches it, and {@link Header.CityHash} is what lets them check
    * they reattached the right one.
    */
-  readonly statics?: StaticGeometry | undefined;
+  readonly city?: RuntimeCity | undefined;
 }
 
 /** A fresh world at tick 0. */
-export function createWorld(
-  seed: number,
-  playerCount = 1,
-  cityHash = 0,
-  statics?: StaticGeometry,
-): World {
+export function createWorld(seed: number, playerCount = 1, city?: RuntimeCity): World {
+  const cityHash = city?.packed.contentHash ?? 0;
   const data = new Int32Array(WORLD_INT32S);
 
   data[Header.FormatVersion] = WORLD_FORMAT_VERSION;
@@ -265,8 +262,12 @@ export function createWorld(
   data[Header.PlayerCount] = Math.max(1, Math.min(playerCount, MAX_PLAYERS));
   data[Header.Flags] = WorldFlags.Running;
 
-  const world: World = { data, statics };
-  rngSeed(rngOf(world), seed);
+  const world: World = { data, city };
+  // The city's content hash is folded into the run seed, not merely recorded
+  // beside it (ADR 0005). Editing the city therefore changes every stream
+  // derived from it, so old leaderboard entries stop matching rather than
+  // silently replaying against geometry that has moved.
+  rngSeed(rngOf(world), foldCityHashIntoSeed(seed, cityHash));
 
   for (let slot = 0; slot < MAX_PLAYERS; slot += 1) {
     setCar(world, slot, Car.CarriedPassenger, NO_PASSENGER);
@@ -283,9 +284,9 @@ export function createWorld(
  * above all — still points at the *original* and must be re-derived.
  */
 export function cloneWorld(world: World): World {
-  // `statics` is carried by reference on purpose: it is immutable input, and
+  // `city` is carried by reference on purpose: it is immutable input, and
   // copying a city's worth of geometry 30 times a second would be absurd.
-  return { data: new Int32Array(world.data), statics: world.statics };
+  return { data: new Int32Array(world.data), city: world.city };
 }
 
 // ---------------------------------------------------------------------------
