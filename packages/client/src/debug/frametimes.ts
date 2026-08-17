@@ -61,7 +61,27 @@ export interface FrameSummary {
   readonly lowOnePercentFps: number;
   /** Fraction of frames that missed a 60 Hz deadline, in `[0, 1]`. */
   readonly missedFraction: number;
+  /**
+   * Whether there are enough samples for {@link lowOnePercentFps} to mean
+   * anything. **The overlay must show a dash rather than a number when this is
+   * false.**
+   *
+   * Below {@link SETTLE_SAMPLES} frames the "worst 1%" rounds down to a single
+   * frame, so the figure is just "the slowest frame since load" — and the first
+   * frame after startup is always slow (module parse, first paint, shader and
+   * font warm-up). Without this gate the number displayed for the first second
+   * of every single run is noise, and it is the number being stared at all day.
+   */
+  readonly settled: boolean;
 }
+
+/**
+ * Samples needed before the 1% low is meaningful.
+ *
+ * At 100, the worst 1% is one frame out of a hundred — which is what "1% low"
+ * means. At 60 fps this is reached about 1.7 s after a run starts.
+ */
+export const SETTLE_SAMPLES = 100;
 
 /** A frame at 60 Hz has this long to finish. */
 export const BUDGET_60_MS = 1000 / 60;
@@ -136,6 +156,7 @@ export class FrameTimes {
         meanFps: 0,
         lowOnePercentFps: 0,
         missedFraction: 0,
+        settled: false,
       };
     }
 
@@ -172,6 +193,7 @@ export class FrameTimes {
       meanFps: meanMs > 0 ? 1000 / meanMs : 0,
       lowOnePercentFps: worstMeanMs > 0 ? 1000 / worstMeanMs : 0,
       missedFraction: missed / count,
+      settled: count >= SETTLE_SAMPLES,
     };
   }
 

@@ -403,7 +403,7 @@ export function renderScene<TSurface>(
 
   context.save();
   context.clearRect(0, 0, view.width, view.height);
-  applyCamera(context as unknown as CanvasRenderingContext2D, view);
+  applyCamera(context, view);
 
   for (const layer of LAYERS) {
     drawLayer(layer, context, input, stats);

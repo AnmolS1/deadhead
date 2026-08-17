@@ -98,6 +98,23 @@ export function containsPoint(bounds: Bounds, x: number, y: number, radius = 0):
 }
 
 /**
+ * The three operations {@link applyCamera} needs from a context.
+ *
+ * Deliberately a structural subset rather than `CanvasRenderingContext2D`.
+ * A real canvas satisfies it and so does `scene.ts`'s `FrameContext`, which
+ * means the frame renderer can pass its context straight through — where it
+ * previously needed `context as unknown as CanvasRenderingContext2D`, a double
+ * cast that silently defeated the entire point of having a testable context
+ * type. With the cast, any future divergence between the two would compile
+ * clean and fail only in a browser.
+ */
+export interface CameraTarget {
+  translate(x: number, y: number): void;
+  rotate(angle: number): void;
+  scale(x: number, y: number): void;
+}
+
+/**
  * Apply the camera to a context.
  *
  * The order is the contract, and it is written once, here, rather than
@@ -121,7 +138,7 @@ export function containsPoint(bounds: Bounds, x: number, y: number, radius = 0):
  * `C-03` does. The first draft of this file documented the loose version, and
  * only a test asserting a specific screen coordinate caught it.
  */
-export function applyCamera(context: CanvasRenderingContext2D, view: ViewportState): void {
+export function applyCamera(context: CameraTarget, view: ViewportState): void {
   const scale = view.zoom * view.pixelsPerUnit;
   context.translate(view.width / 2, view.height / 2);
   context.rotate(-view.rotation);
