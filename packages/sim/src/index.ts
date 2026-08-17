@@ -66,6 +66,7 @@ export type { RngState } from './rng.js';
 
 export {
   Car,
+  CarFlags,
   Header,
   MAX_PASSENGERS,
   MAX_PLAYERS,
@@ -98,4 +99,16 @@ export {
 
 export type { World } from './world.js';
 
-export { CarFlags, CarTuning, carSpeed, carSpeedFraction, carVelocityAngle } from './car.js';
+export { CarTuning, carSpeed, carSpeedFraction, carVelocityAngle } from './car.js';
+
+export { ClockTuning, beginFare, endFare, grantDeadhead, isCarrying, isDriving } from './clock.js';
+
+export {
+  boxesFromUnits,
+  buildStaticGeometry,
+  emptyGeometry,
+  overlapsStatic,
+  sweepCar,
+} from './collide.js';
+
+export type { CollisionResult, StaticGeometry } from './collide.js';
