@@ -44,3 +44,10 @@ jobs:
 
       - name: test
         run: npm test
+
+      # The other half of determinism: the same suite again inside workerd, the
+      # runtime the Durable Object and the replay validator actually use. The
+      # goldens passing in both engines is what says multiplayer and
+      # leaderboards are buildable (S-06, S-14).
+      - name: test (workerd)
+        run: npm run test:workerd
