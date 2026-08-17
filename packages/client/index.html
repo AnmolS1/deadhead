@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>deadhead</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<style>
+  html,
+  body {
+    margin: 0;
+    height: 100%;
+    background: #111;
+    overflow: hidden;
+  }
+  #game {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+</style>
+<canvas id="game"></canvas>
+<!-- External module, never inline: the site ships script-src 'self'. See CLAUDE.md §4. -->
+<script type="module" src="/src/main.ts"></script>
