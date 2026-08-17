@@ -77,13 +77,27 @@ export const PassengerTuning = {
   rushPatienceTicks: 40 * TICK_HZ,
 
   /**
-   * Chance in 256 that a new passenger is `Rush`.
+   * Chance in 256 that a new passenger is `Rush`, at the start of a run.
    *
-   * **Open question, `DESIGN.md` §7.2:** whether this should shift across a run
-   * (early Meter-rich, late Rush-rich) to give a run an arc. Implemented as a
-   * flat knob because the answer is a playtest result.
+   * **Decided (`D-04`): the mix shifts toward `Rush` as a run goes on**, so the
+   * late game gets louder. A run that opens Meter-rich rewards patient routing
+   * while the bank is deep; one that closes Rush-rich turns the last minute
+   * into a scramble, which is where the excitement should be.
    */
-  rushShareOf256: 96,
+  rushShareStartOf256: 64,
+
+  /** Chance in 256 that a new passenger is `Rush`, once the shift has run its course. */
+  rushShareEndOf256: 168,
+
+  /**
+   * Ticks over which the mix shifts from start to end, then holds.
+   *
+   * Matched to the starting deadhead bank, because with no refill (`D-04`) that
+   * *is* the length of a run. Driven by the world tick rather than by any one
+   * cab's bank, because passengers are shared: in a twelve-player match every
+   * cab must see the same person on the same corner.
+   */
+  rushShiftTicks: 180 * TICK_HZ,
 
   /**
    * How long the demand field takes to complete one migration, in ticks.
@@ -143,6 +157,19 @@ export function demandAt(city: RuntimeCity, tick: number, x: number, y: number):
   }
 
   return total;
+}
+
+/**
+ * How likely a new passenger is to be a `Rush`, at this tick, in 1/256ths.
+ *
+ * A straight ramp that holds once it arrives. Integer throughout — this feeds a
+ * comparison against a generator draw, and the draw count must not depend on
+ * anything but the tick.
+ */
+export function rushShareAt(tick: number): number {
+  const { rushShareStartOf256: start, rushShareEndOf256: end, rushShiftTicks } = PassengerTuning;
+  if (tick >= rushShiftTicks) return end;
+  return start + Math.floor(((end - start) * tick) / rushShiftTicks);
 }
 
 /** Where the migration cycle stands at this tick, in 1/256ths. */
@@ -276,7 +303,7 @@ function trySpawn(world: World, city: RuntimeCity, tick: number): void {
 
   const base = chosen * POINT_WORDS;
   const destination = rngNextBelow(rng, destinations.length / POINT_WORDS);
-  const rush = rngNextBelow(rng, PEAK_WEIGHT) < PassengerTuning.rushShareOf256;
+  const rush = rngNextBelow(rng, PEAK_WEIGHT) < rushShareAt(tick);
 
   setPassenger(
     world,

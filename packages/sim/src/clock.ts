@@ -68,12 +68,19 @@ export const ClockTuning = {
   /**
    * Deadhead time returned on a completed delivery.
    *
-   * **Open question, `DESIGN.md` §7.1: "Does the bank refill on delivery, and
-   * by how much?"** It is implemented as a knob rather than decided, because
-   * the answer is a playtest result and not an engineering one. Zero turns the
-   * mechanic off entirely, which is a legitimate answer.
+   * **Zero. Decided (`D-04`, ADR 0006): the bank does not refill.** Three
+   * minutes is the run, and the end of the three minutes is the end of the
+   * game.
+   *
+   * That makes the deadhead bank a fixed budget rather than a resource you can
+   * farm, which is what keeps the scarce thing *scarce*. A refill would mean a
+   * good player's run has no end, and a leaderboard where the best score is
+   * "however long you could keep going" measures endurance rather than routing.
+   *
+   * The mechanism is kept — `grantDeadhead` still works, and `G-01` may want it
+   * for a crash penalty's inverse — but nothing grants time today.
    */
-  deliveryBonusTicks: 5 * TICK_HZ,
+  deliveryBonusTicks: 0,
 } as const;
 
 /** Set every cab's deadhead bank to the starting value. Called by `createWorld`. */

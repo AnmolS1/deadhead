@@ -124,6 +124,7 @@ export type { RuntimeCity } from './city.js';
 export {
   PassengerTuning,
   demandAt,
+  rushShareAt,
   despawnPassenger,
   isPassengerActive,
   isRush,

@@ -8,6 +8,8 @@ export default tseslint.config(
   {
     ignores: [
       '**/dist/**',
+      // Vite's bundle output. Separate from `dist` because tsc writes there too.
+      '**/dist-app/**',
       '**/node_modules/**',
       '**/*.tsbuildinfo',
       // Hard invariant #3 in CLAUDE.md. Nothing in this repo — tooling

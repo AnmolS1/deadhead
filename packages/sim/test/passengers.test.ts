@@ -12,6 +12,7 @@ import {
   isPassengerActive,
   isRush,
   passengerCount,
+  rushShareAt,
 } from '../src/passengers.js';
 import { step } from '../src/step.js';
 import {
@@ -208,20 +209,61 @@ describe('spawning', () => {
     expect(share(PassengerTuning.migrationPeriodTicks / 2)).toBeLessThan(0.35);
   });
 
-  it('mixes the two classes at the tuned ratio', () => {
+  it('mixes the two classes at the ratio for that point in the run', () => {
     const city = twoDistrictCity();
-    let rush = 0;
-    let total = 0;
-    for (let trial = 0; trial < 800; trial += 1) {
-      const world = atSpawnTick(city, 50_000 + trial);
-      for (let slot = 0; slot < MAX_PASSENGERS; slot += 1) {
-        if (!isPassengerActive(world, slot)) continue;
-        total += 1;
-        if (isRush(world, slot)) rush += 1;
+    const measure = (tick: number): number => {
+      let rush = 0;
+      let total = 0;
+      for (let trial = 0; trial < 800; trial += 1) {
+        const world = atSpawnTick(city, 50_000 + trial, tick);
+        for (let slot = 0; slot < MAX_PASSENGERS; slot += 1) {
+          if (!isPassengerActive(world, slot)) continue;
+          total += 1;
+          if (isRush(world, slot)) rush += 1;
+        }
       }
+      return rush / total;
+    };
+
+    const early = PassengerTuning.spawnIntervalTicks;
+    const late = PassengerTuning.rushShiftTicks;
+    expect(Math.abs(measure(early) - rushShareAt(early) / 256)).toBeLessThan(0.06);
+    expect(Math.abs(measure(late) - rushShareAt(late) / 256)).toBeLessThan(0.06);
+  });
+
+  it('shifts toward Rush as a run goes on', () => {
+    // ADR 0006: a run opens Meter-rich, rewarding patient routing while the
+    // bank is deep, and closes Rush-rich so the last minute is a scramble.
+    const shift = PassengerTuning.rushShiftTicks;
+    expect(rushShareAt(0)).toBe(PassengerTuning.rushShareStartOf256);
+    expect(rushShareAt(shift / 2)).toBeGreaterThan(rushShareAt(0));
+    expect(rushShareAt(shift)).toBe(PassengerTuning.rushShareEndOf256);
+    // ...and holds, rather than running off the end.
+    expect(rushShareAt(shift * 10)).toBe(PassengerTuning.rushShareEndOf256);
+
+    for (let tick = 1; tick <= shift; tick += 97) {
+      expect(rushShareAt(tick)).toBeGreaterThanOrEqual(rushShareAt(tick - 1));
     }
-    const expected = PassengerTuning.rushShareOf256 / 256;
-    expect(Math.abs(rush / total - expected)).toBeLessThan(0.06);
+  });
+
+  it('drives the shift from the world tick, not from any one cab', () => {
+    // Passengers are shared (DESIGN.md §2.3): in a twelve-player match every cab
+    // must see the same person on the same corner. A per-player ramp would put
+    // different people on the same street for different players.
+    const city = twoDistrictCity();
+    const solo = atSpawnTick(city, 4242, 3_000);
+    const crowded = createWorld(4242, 12, city);
+    crowded.data[Header.Tick] = 3_000 - 1;
+    const stepped = step(crowded, new Array(12).fill(0));
+
+    const classesOf = (world: World): string[] => {
+      const rows: string[] = [];
+      for (let slot = 0; slot < MAX_PASSENGERS; slot += 1) {
+        if (isPassengerActive(world, slot)) rows.push(isRush(world, slot) ? 'rush' : 'meter');
+      }
+      return rows;
+    };
+    expect(classesOf(stepped)).toEqual(classesOf(solo));
   });
 
   it('gives every passenger a destination the city actually has', () => {

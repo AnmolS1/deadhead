@@ -6,10 +6,16 @@
   "description": "Canvas renderer, input, audio and UI. Imports the sim; never mutates it.",
   "scripts": {
     "typecheck": "tsc -p tsconfig.test.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "dev": "vite",
+    "build:app": "vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
     "@deadhead/proto": "*",
     "@deadhead/sim": "*"
+  },
+  "devDependencies": {
+    "vite": "^7.3.6"
   }
 }
