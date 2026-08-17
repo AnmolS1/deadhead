@@ -27,6 +27,12 @@ jobs:
 
       - run: npm ci
 
+      # Guards against the lockfile drifting from the workspace set. It is also
+      # checked locally by check:all, because npm ci is the only thing that
+      # notices otherwise — and by then it is a red PR.
+      - name: lockfile
+        run: npm run check:lockfile
+
       - name: format
         run: npm run format:check
 
