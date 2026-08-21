@@ -16,14 +16,18 @@
  * The renderer here is a placeholder — `C-04` replaces it. What is real is the
  * loop.
  */
+import { packCity, type CityJson } from '@deadhead/proto';
 import {
   Car,
   FX_ONE,
   createWorld,
   emptyCity,
+  fxFromInt,
   getCar,
-  getTick,
+  prepareCity,
+  setCar,
   step,
+  type RuntimeCity,
   type World,
 } from '@deadhead/sim';
 
@@ -36,6 +40,11 @@ import {
   pollGamepad,
 } from './input/index.js';
 import { FixedTimestepLoop } from './loop.js';
+import { GroundCache, suggestedBudgetBytes } from './render/chunks.js';
+import { paintCity } from './render/city.js';
+import { Ink } from './render/palette.js';
+import { renderScene, type FrameContext } from './render/scene.js';
+import { type ViewportState } from './render/viewport.js';
 
 /** Everything a running game needs. `G-01` gives this a real lifecycle. */
 interface Session {
@@ -45,9 +54,30 @@ interface Session {
   previous: World;
   readonly loop: FixedTimestepLoop;
   readonly input: InputBuffer;
+  readonly city: CityJson | null;
+  readonly ground: GroundCache<OffscreenCanvas> | null;
 }
 
-function start(canvas: HTMLCanvasElement): void {
+/** Device pixels per world unit at zoom 1, before the display's pixel ratio. */
+const PIXELS_PER_UNIT = 8;
+
+/**
+ * A zoom override, for looking at the city rather than playing it.
+ *
+ * `?scale=3` frames a whole district; the default frames the road ahead. Purely
+ * a development affordance — `C-06`'s overlay will want it, and `W-05` needed
+ * it to check the "reads as one coherent world" half of its done-when, which
+ * cannot be judged from two blocks of street.
+ */
+function scaleOverride(): number {
+  const value = Number(new URLSearchParams(location.search).get('scale'));
+  return Number.isFinite(value) && value > 0 ? value : PIXELS_PER_UNIT;
+}
+
+/** Side of one pre-rendered ground chunk, in world units. */
+const CHUNK_UNITS = 96;
+
+function start(canvas: HTMLCanvasElement, cityJson: CityJson | null): void {
   const context = getContext(canvas);
   let viewport: Viewport = resizeCanvas(canvas) ?? {
     width: canvas.width,
@@ -55,13 +85,57 @@ function start(canvas: HTMLCanvasElement): void {
     pixelRatio: 1,
   };
 
-  // An empty city until `W-03` — the loop is what this task is about.
-  const world = createWorld(1, 1, emptyCity());
+  const runtime: RuntimeCity = cityJson === null ? emptyCity() : prepareCity(packCity(cityJson));
+  const world = createWorld(20260821, 1, runtime);
+
+  // Put the cab on a road. `G-01` owns this properly — a seeded junction,
+  // biased toward the middle — but a cab left at the origin is inside a
+  // building in City 01, and a demo that opens wedged in a wall is no demo.
+  if (cityJson !== null && cityJson.nodes.length > 0) {
+    const node = cityJson.nodes[Math.floor(cityJson.nodes.length / 2)]!;
+    setCar(world, 0, Car.X, fxFromInt(node.x));
+    setCar(world, 0, Car.Y, fxFromInt(node.y));
+  }
+
+  const pixelsPerUnit = scaleOverride() * viewport.pixelRatio;
   const session: Session = {
     current: world,
     previous: world,
     loop: new FixedTimestepLoop(),
     input: new InputBuffer(),
+    city: cityJson,
+    ground:
+      cityJson === null
+        ? null
+        : new GroundCache<OffscreenCanvas>({
+            chunkUnits: CHUNK_UNITS,
+            pixelsPerUnit,
+            budgetBytes: suggestedBudgetBytes(canvas.width, canvas.height),
+            createSurface: (w, h) => new OffscreenCanvas(w, h),
+            paint: (surface, bounds) => {
+              const ctx = surface.getContext('2d');
+              if (ctx === null) return;
+
+              // Fill the WHOLE surface first, in canvas space.
+              //
+              // A chunk canvas is `ceil(chunkUnits * pixelsPerUnit)` pixels, so
+              // when that product is fractional there is a sliver of canvas
+              // past the world rectangle the painter covers. Left transparent,
+              // resampling smears it into a visible seam at every chunk
+              // boundary — a grid of faint lines across the whole city, which
+              // is exactly what this looked like before.
+              //
+              // Painting the bleed in the paper colour means the seam blends
+              // paper into paper and disappears.
+              ctx.fillStyle = Ink.paper;
+              ctx.fillRect(0, 0, surface.width, surface.height);
+
+              // Chunk space: world units, with the chunk's corner at the origin.
+              ctx.scale(pixelsPerUnit, pixelsPerUnit);
+              ctx.translate(-bounds.minX, -bounds.minY);
+              paintCity(ctx, cityJson, { bounds, scale: pixelsPerUnit });
+            },
+          }),
   };
 
   attachKeyboard(window, session.input, loadBindings(safeLocalStorage()));
@@ -97,26 +171,81 @@ function start(canvas: HTMLCanvasElement): void {
   requestAnimationFrame(frame);
 }
 
-/** Placeholder. `C-04` owns the real one; this proves the loop is turning. */
+/**
+ * One frame.
+ *
+ * The camera follows the cab without rotating — `C-03`'s rotation is available
+ * and deliberately not used here, because a rotating world plus a folded-paper
+ * aesthetic reads as a sheet being turned over rather than a car going round a
+ * corner. `C-08`'s feel pass is where that gets decided properly.
+ */
 function render(
   context: CanvasRenderingContext2D,
   viewport: Viewport,
   session: Session,
   alpha: number,
 ): void {
-  context.fillStyle = '#111';
-  context.fillRect(0, 0, viewport.width, viewport.height);
-
   const x = getCar(session.current, 0, Car.X) / FX_ONE;
   const y = getCar(session.current, 0, Car.Y) / FX_ONE;
 
-  context.fillStyle = '#f5f5f5';
-  context.font = `${14 * viewport.pixelRatio}px ui-monospace, monospace`;
-  context.fillText(
-    `tick ${getTick(session.current)}  alpha ${alpha.toFixed(3)}  cab ${x.toFixed(1)}, ${y.toFixed(1)}`,
-    16 * viewport.pixelRatio,
-    28 * viewport.pixelRatio,
-  );
+  const view: ViewportState = {
+    x,
+    y,
+    rotation: 0,
+    zoom: 1,
+    width: viewport.width,
+    height: viewport.height,
+    pixelsPerUnit: scaleOverride() * viewport.pixelRatio,
+  };
+
+  // The paper, everywhere the city is not — so the edges of the world are the
+  // same sheet rather than a void.
+  context.fillStyle = Ink.paper;
+  context.fillRect(0, 0, viewport.width, viewport.height);
+
+  const frame = context as unknown as FrameContext;
+  const ground = session.ground;
+
+  const base = {
+    previous: session.previous,
+    current: session.current,
+    view,
+    alpha,
+    ...(session.city === null ? {} : { cityJson: session.city }),
+  };
+
+  if (ground === null) {
+    renderScene<OffscreenCanvas>(frame, base);
+    return;
+  }
+
+  renderScene<OffscreenCanvas>(frame, {
+    ...base,
+    ground: {
+      cache: ground,
+      blit: (_ctx, surface, bounds) => {
+        // Chunks are rendered at zoom 1, so the blit only ever scales down
+        // (chunks.ts). Drawn in world units — the camera transform is already
+        // on the context.
+        //
+        // **Overlapped by a device pixel**, which is what stops a faint grid of
+        // seams appearing across the whole city. A chunk canvas is
+        // `ceil(units * pixelsPerUnit)` pixels and is blitted to a fractional
+        // destination, so its edges resample against nothing and every chunk
+        // boundary picks up a hairline. Painting a paper bleed into the
+        // overhang reduces it; only overlapping removes it, because then the
+        // neighbour covers the resampled edge entirely.
+        const bleed = 1 / (view.zoom * view.pixelsPerUnit);
+        context.drawImage(
+          surface,
+          bounds.minX,
+          bounds.minY,
+          bounds.maxX - bounds.minX + bleed,
+          bounds.maxY - bounds.minY + bleed,
+        );
+      },
+    },
+  });
 }
 
 /** `localStorage` throws on access in some privacy modes rather than returning null. */
@@ -130,4 +259,15 @@ function safeLocalStorage(): Storage | null {
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game');
 if (canvas === null) throw new Error('no #game canvas on the page');
-start(canvas);
+
+/**
+ * Load the city, then start.
+ *
+ * Same-origin and bundled — `no-thirdparty.sh` fails the build on any external
+ * origin, so the city ships as an asset beside the game rather than being
+ * fetched from anywhere.
+ */
+void fetch(new URL('../assets/cities/01.json', import.meta.url))
+  .then((response) => (response.ok ? (response.json() as Promise<CityJson>) : null))
+  .catch(() => null)
+  .then((city) => start(canvas, city));

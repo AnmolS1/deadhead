@@ -28,7 +28,8 @@ import { type ViewportState } from '../src/render/viewport.js';
  */
 function recorder() {
   const calls: string[] = [];
-  const fills: { x: number; y: number; style: string }[] = [];
+  /** Every fill, with the style in force at the moment it happened. */
+  const fills: { style: string; kind: 'rect' | 'path' }[] = [];
   const context: FrameContext = {
     save: () => void calls.push('save'),
     restore: () => void calls.push('restore'),
@@ -41,11 +42,24 @@ function recorder() {
       // fillStyle before its loop — including layers with nothing to draw — so
       // the last value on the context belongs to the last layer that ran, not
       // to the last thing actually painted.
-      fills.push({ x, y, style: String(context.fillStyle) });
+      fills.push({ style: String(context.fillStyle), kind: 'rect' });
       calls.push(`fillRect(${x.toFixed(1)},${y.toFixed(1)})`);
     },
+    beginPath: () => void calls.push('beginPath'),
+    closePath: () => void calls.push('closePath'),
+    moveTo: (x, y) => void calls.push(`moveTo(${x.toFixed(1)},${y.toFixed(1)})`),
+    lineTo: (x, y) => void calls.push(`lineTo(${x.toFixed(1)},${y.toFixed(1)})`),
+    fill: () => {
+      fills.push({ style: String(context.fillStyle), kind: 'path' });
+      calls.push('fill');
+    },
+    stroke: () => void calls.push('stroke'),
+    setLineDash: () => void calls.push('setLineDash'),
     drawImage: (_image, dx, dy) => void calls.push(`drawImage(${dx},${dy})`),
     fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 1,
+    lineJoin: 'miter',
     globalAlpha: 1,
   };
   return { context, calls, fills };
@@ -114,16 +128,16 @@ describe('renderScene', () => {
     const world = createWorld(1, 1);
     setCar(world, 0, Car.X, fxFromInt(10));
     setCar(world, 0, Car.CarriedPassenger, NO_PASSENGER);
-    const { context, calls } = recorder();
+    const { context, fills } = recorder();
 
     renderScene(context, { previous: world, current: world, view: view(), alpha: 0 });
 
-    // Two fillRects for one cab: its shadow, then its body.
-    const fills = calls.filter((c) => c.startsWith('fillRect'));
-    expect(fills).toHaveLength(2);
-    // The shadow is offset half a unit further up (y - 1 vs y - 1) but is drawn
-    // first — position alone cannot distinguish them, so assert on order.
-    expect(calls.indexOf(fills[0]!)).toBeLessThan(calls.lastIndexOf(fills[1]!));
+    // The shadow is the graphite one, and it comes first.
+    const shadow = fills.findIndex((f) => f.style.includes('27, 42, 51'));
+    const body = fills.findIndex((f) => f.style === '#E84A27');
+    expect(shadow, JSON.stringify(fills)).toBeGreaterThanOrEqual(0);
+    expect(body).toBeGreaterThanOrEqual(0);
+    expect(shadow).toBeLessThan(body);
   });
 
   it('blits every visible ground chunk, and reaches the context to do it', () => {
@@ -205,11 +219,16 @@ describe('renderScene', () => {
       setCar(world, 0, Car.CarriedPassenger, carried);
       const { context, fills } = recorder();
       renderScene(context, { previous: world, current: world, view: view(), alpha: 0 });
-      // Two fills for one cab: the shadow, then the body. The body is the second.
-      return fills[1]?.style ?? '';
+      // The first fill after the shadow is the cab's lit half.
+      const shadowStyle = fills[0]?.style ?? '';
+      return fills.find((f) => f.style !== shadowStyle)?.style ?? '';
     };
 
-    expect(styleOfCab(NO_PASSENGER)).not.toBe(styleOfCab(4));
+    // An empty cab is the accent; a carrying one is ink. ADR 0001 reserves the
+    // accent for motion and the empty-cab state — the screen is loud while you
+    // are losing and quiet while you are earning.
+    expect(styleOfCab(NO_PASSENGER)).toBe('#E84A27');
+    expect(styleOfCab(4)).not.toBe('#E84A27');
   });
 
   it('reports counts for every layer it drew', () => {
