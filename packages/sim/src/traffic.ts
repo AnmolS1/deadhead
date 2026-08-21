@@ -55,8 +55,25 @@ const NODE_WORDS = 3;
 const EDGE_WORDS = 4;
 
 export const TrafficTuning = {
-  /** How many vehicles to keep on the road. `W-04` tunes this against the real city. */
-  count: 24,
+  /**
+   * How many vehicles to keep on the road.
+   *
+   * **Tuned against City 01 (`W-04`), which has 21,238 units of road across 230
+   * segments.** The measurement that decided it is road length per vehicle, not
+   * a count: at the previous 24 there was one vehicle every 885 units, so a
+   * player would drive most of a full city crossing without meeting anybody —
+   * every street empty, all the time. At 64 it is one every 332 units, or a car
+   * roughly every eleven seconds at speed, which reads as a quiet city rather
+   * than an abandoned one.
+   *
+   * This is `MAX_TRAFFIC`, deliberately. The cap is a *storage* bound on the
+   * world layout rather than a budget to stay under: traffic is never
+   * transmitted (`S-08`), so the only cost of filling it is `step()` time.
+   * Coverage measurements say 24 vehicles do eventually reach every segment —
+   * 100% by 480 s — so this is not about reaching the network, it is about how
+   * populated the city feels while you are driving through it.
+   */
+  count: 64,
 
   /** Slowest an NPC travels, units per tick. */
   minSpeed: fxFromRatio(9, 30),

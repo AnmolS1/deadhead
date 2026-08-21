@@ -513,77 +513,103 @@ function demand(b: Builder): void {
 }
 
 /**
- * Passenger points, laid on kerbs and kept apart.
+ * Passenger points, laid on kerbs, spread by district and kept apart.
  *
- * The separation is not cosmetic. `S-09` picks a destination **uniformly at
- * random and independently of the spawn**, so *any* pair can come up — and a
- * pair closer than `minFareDistance` is a fare that pays the base rate for no
- * driving. Every candidate destination is therefore checked against every
- * accepted spawn before it is kept, which is the only way to guarantee the
- * property rather than hope for it.
+ * **Generated from the junction list rather than hand-listed**, because
+ * hand-listing produced a city that could not migrate. The first version had 7
+ * spawns in the north-west and **2** in the north-east — and demand cannot move
+ * *into* a district that has nowhere to arrive. Measured over a 180 s run, the
+ * north-east's share of spawns went 11% → 27% → 0% → 0%: not a migrating field,
+ * a quantisation artefact of having two sites.
+ *
+ * Three constraints, all of which have a reason:
+ *
+ * - **Balanced across the four quarters**, so a demand anchor has somewhere to
+ *   be answered wherever it peaks.
+ * - **Spread within a quarter** (`MIN_APART`), so a district's demand is not
+ *   really one street corner.
+ * - **Spawns kept away from destinations** (`SEPARATION`). `S-09` picks a
+ *   destination uniformly at random and *independently of the spawn*, so any
+ *   pair can come up, and a close pair is a fare that pays the base rate for no
+ *   driving — the `S-10` finding, as a property of the city.
+ *
+ * Deterministic throughout: junctions are walked in index order and chosen
+ * greedily, so the same city comes out every time.
  */
 function passengers(b: Builder): void {
-  const SEPARATION = 120;
+  const PER_DISTRICT = 5;
+  /** Spacing between two points of the same kind, so a district is not one corner. */
+  const MIN_APART = 110;
+  /** Spacing between a spawn and a destination — see the note above on `S-10`. */
+  const SEPARATION = 90;
 
-  const spawnSites: readonly (readonly [number, number])[] = [
-    [-415, -350],
-    [-285, -415],
-    [-155, -285],
-    [-90, -90],
-    [-350, -155],
-    [-220, -25],
-    [150, -300],
-    [325, -130],
-    [-25, -215],
-    [150, NORTH_BANK - 12],
-    [-390, 250],
-    [-300, 350],
-    [-215, 370],
-    [-125, 375],
-    [180, 330],
-    [385, 250],
-    [-25, 400],
-    [180, EXTENT - 14],
-    [-310, SOUTH_BANK - 12],
-    [270, NORTH_BANK - 12],
-  ];
+  const quadrant = (p: { x: number; y: number }): string =>
+    `${p.y < 0 ? 'N' : 'S'}${p.x < 0 ? 'W' : 'E'}`;
 
-  const destinationSites: readonly (readonly [number, number])[] = [
-    [-480, -220],
-    [-155, -480],
-    [-25, -350],
-    [-350, -285],
-    [-90, -415],
-    [325, -415],
-    [480, -300],
-    [150, -130],
-    [325, NORTH_BANK - 12],
-    [-460, 350],
-    [-160, EXTENT - 14],
-    [-70, 300],
-    [385, 430],
-    [90, SOUTH_BANK - 12],
-    [280, 260],
-    [-25, 240],
-    [480, 120],
-    [-415, -25],
-    [40, -480],
-    [-300, EXTENT - 14],
-  ];
+  const far = (
+    point: { x: number; y: number },
+    others: readonly { x: number; y: number }[],
+    least: number,
+  ): boolean => others.every((o) => Math.hypot(o.x - point.x, o.y - point.y) >= least);
 
   const spawns: { x: number; y: number }[] = [];
-  for (const [x, y] of spawnSites) {
-    const point = b.kerb(x, y, 'spawn');
-    if (point === null) continue;
-    b.doc.addSpawn(point);
-    spawns.push(point);
+  const destinations: { x: number; y: number }[] = [];
+  const spawnCount = new Map<string, number>();
+  const destCount = new Map<string, number>();
+
+  // **Interleaved, not two passes.** Placing every spawn first and then asking
+  // destinations to keep their distance starves them: the first attempt put 21
+  // spawns down and could only fit 9 destinations around them. Alternating by
+  // district lets the two sets grow into each other's gaps instead.
+  for (let i = 0; i < b.city.nodes.length; i += 1) {
+    const node = b.city.nodes[i]!;
+    const district = quadrant(node);
+
+    const haveSpawns = spawnCount.get(district) ?? 0;
+    const haveDests = destCount.get(district) ?? 0;
+    if (haveSpawns >= PER_DISTRICT && haveDests >= PER_DISTRICT) continue;
+
+    // Whichever this district is shorter of, so the two stay in step.
+    const role: 'spawn' | 'destination' =
+      haveSpawns <= haveDests && haveSpawns < PER_DISTRICT ? 'spawn' : 'destination';
+    if (role === 'destination' && haveDests >= PER_DISTRICT) continue;
+
+    // Probe from just *inside* the junction rather than on it. `snapKerb` puts
+    // the passenger on whichever side the point was, and a junction sits on the
+    // centreline where that has no answer — so on the ring road it could place
+    // someone on the outward kerb, facing off the edge of the map.
+    //
+    // Nudging the probe toward the origin makes the choice for it. An earlier
+    // version instead *skipped* every junction near the edge, which threw away
+    // the whole outer ring: in the sparse Spine that was most of the district,
+    // and it is why the north-east could only ever field two sites.
+    const inward = 3;
+    const kerb = b.kerb(
+      node.x - Math.sign(node.x) * inward,
+      node.y - Math.sign(node.y) * inward,
+      role,
+    );
+    if (kerb === null) continue;
+
+    // A kerb can still land outside the city. At the map corners the probe sits
+    // exactly on the Crease's centreline, where "which side" has no answer and
+    // `snapKerb` falls back to an arbitrary one — which at (-480, -480) put a
+    // passenger at (-481, -473), off the edge of the world. Cheaper to reject
+    // the point than to teach the snap about map bounds it knows nothing about.
+    if (Math.abs(kerb.x) > EXTENT || Math.abs(kerb.y) > EXTENT) continue;
+
+    const same = role === 'spawn' ? spawns : destinations;
+    const other = role === 'spawn' ? destinations : spawns;
+    if (!far(kerb, same, MIN_APART)) continue;
+    if (!far(kerb, other, SEPARATION)) continue;
+
+    same.push(kerb);
+    (role === 'spawn' ? spawnCount : destCount).set(
+      district,
+      (role === 'spawn' ? haveSpawns : haveDests) + 1,
+    );
   }
 
-  for (const [x, y] of destinationSites) {
-    const point = b.kerb(x, y, 'destination');
-    if (point === null) continue;
-    const tooClose = spawns.some((s) => Math.hypot(s.x - point.x, s.y - point.y) < SEPARATION);
-    if (tooClose) continue;
-    b.doc.addDestination(point);
-  }
+  for (const point of spawns) b.doc.addSpawn(point);
+  for (const point of destinations) b.doc.addDestination(point);
 }
