@@ -18,5 +18,8 @@ export default defineConfig({
     target: 'es2022',
     sourcemap: true,
   },
-  server: { port: 4322 },
+  // Serve the repo root as well, so `?city=/packages/client/assets/cities/01.json`
+  // resolves against the real generated file rather than a copy.
+  server: { port: 4322, fs: { allow: ['../..'] } },
+  publicDir: false,
 });

@@ -8,7 +8,8 @@
     "typecheck": "tsc -p tsconfig.test.json",
     "test": "vitest run",
     "dev": "vite",
-    "build:app": "vite build"
+    "build:app": "vite build",
+    "city:01": "node ../../tools/cityedit/dist/cities/generate.js"
   },
   "dependencies": {
     "@deadhead/client": "*",

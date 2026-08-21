@@ -4,12 +4,14 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "emitDeclarationOnly": true,
+    // Emits JS as well as declarations. Vite bundles the editor from source and
+    // does not need it, but `cities/generate.ts` is a Node script run by
+    // `npm run city:01`, and a declaration-only build gives it nothing to run.
     "rootDir": "src",
     "outDir": "dist",
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.d.ts"],
   "references": [
     { "path": "../../packages/proto" },
     { "path": "../../packages/sim" },
