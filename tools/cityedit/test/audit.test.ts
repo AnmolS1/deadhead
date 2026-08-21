@@ -9,6 +9,7 @@ import {
   formatFindings,
   isPlayable,
   pointInBox,
+  reachFromCentreline,
   stronglyConnectedComponents,
 } from '../src/audit.js';
 
@@ -114,7 +115,32 @@ describe('points somewhere impossible', () => {
     const city = squareCity({ spawns: [{ x: 100, y: 100 }] }); // dead centre of the block
     const found = audit(city).find((f) => f.rule === 'no-road-access');
     expect(found?.severity).toBe('error');
-    expect(found?.message).toMatch(/cannot reach/);
+    expect(found?.message).toMatch(/never be picked up/);
+  });
+
+  it('derives the reach from the sim rather than inventing a number', () => {
+    // The defect this replaced. The first version allowed a flat 12 units,
+    // described as "half the widest carriageway plus a pavement". On a standard
+    // 8-wide road a cab's centre reaches 3.5 from the centreline and collects
+    // within FareTuning.pickupRadius (3), so the true figure is 6.5 — and a
+    // spawn 10 units out passed the audit while being impossible to pick up.
+    expect(reachFromCentreline(8, 'spawn')).toBeCloseTo(6.5, 6);
+    // Dropoff is more forgiving than pickup, so destinations reach further.
+    expect(reachFromCentreline(8, 'destination')).toBeGreaterThan(reachFromCentreline(8, 'spawn'));
+    // A wider carriageway lets the cab get further off the centreline.
+    expect(reachFromCentreline(16, 'spawn')).toBeGreaterThan(reachFromCentreline(8, 'spawn'));
+  });
+
+  it('rejects the spawn that the old flat limit would have passed', () => {
+    // 10 units from an 8-wide road: inside the old 12, outside the real 6.5.
+    const city = squareCity({ spawns: [{ x: 100, y: 10 }] });
+    expect(rules(city)).toContain('no-road-access');
+  });
+
+  it('accepts a spawn at the kerb', () => {
+    // Width 8, so the kerb is 4 units from the centreline — comfortably inside
+    // the 6.5 a cab can reach.
+    expect(rules(squareCity({ spawns: [{ x: 100, y: 4 }] }))).not.toContain('no-road-access');
   });
 
   it('allows a spawn on the pavement beside a road', () => {

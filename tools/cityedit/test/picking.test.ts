@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import { emptyCityJson, type CityJson } from '@deadhead/proto';
 
-import { pick, snap, toleranceForZoom } from '../src/picking.js';
+import { reachFromCentreline } from '../src/audit.js';
+import { pick, snap, snapKerb, toleranceForZoom } from '../src/picking.js';
 
 function city(overrides: Partial<CityJson> = {}): CityJson {
   return {
@@ -209,5 +210,131 @@ describe('toleranceForZoom', () => {
 
   it('does not divide by zero on a degenerate view', () => {
     expect(Number.isFinite(toleranceForZoom(10, 0, 10))).toBe(true);
+  });
+});
+
+describe('snapKerb — passengers stand on the pavement', () => {
+  it('offsets perpendicular to the road, not onto it', () => {
+    // The behaviour this exists for. The general snap() ranks road centrelines
+    // above the grid, which is right for junctions and wrong for people: it
+    // drops passengers in the middle of the carriageway, so the authored data
+    // says something the world does not mean.
+    const result = snapKerb(city(), { x: 100, y: 3 }, 'spawn');
+    expect(result.onKerb).toBe(true);
+    expect(result.road).toBe(0);
+    // Road is width 8 along y=0, so the kerb is 4 units off the centreline.
+    expect(result.point).toEqual({ x: 100, y: 4 });
+  });
+
+  it('picks the side the click was on', () => {
+    expect(snapKerb(city(), { x: 100, y: 3 }, 'spawn').point.y).toBe(4);
+    expect(snapKerb(city(), { x: 100, y: -3 }, 'spawn').point.y).toBe(-4);
+  });
+
+  it('is deterministic on the centreline rather than flickering', () => {
+    // Exactly on the line there is no side to infer. It must still pick one and
+    // keep picking it, or clicking the same pixel twice gives two answers.
+    const first = snapKerb(city(), { x: 100, y: 0 }, 'spawn');
+    for (let i = 0; i < 10; i += 1) {
+      expect(snapKerb(city(), { x: 100, y: 0 }, 'spawn')).toEqual(first);
+    }
+    expect(Math.abs(first.point.y)).toBe(4);
+  });
+
+  it('places the passenger somewhere a cab can actually reach', () => {
+    // The property that matters, checked against the sim's own numbers rather
+    // than against the offset this function happens to use.
+    for (const width of [6, 8, 12, 20]) {
+      const target = city({ edges: [{ a: 0, b: 1, width }] });
+      const result = snapKerb(target, { x: 100, y: 2 }, 'spawn');
+      const distance = Math.abs(result.point.y);
+      expect(distance, `width ${width}`).toBeLessThanOrEqual(reachFromCentreline(width, 'spawn'));
+    }
+  });
+
+  it('scales the offset with the carriageway', () => {
+    const narrow = snapKerb(city({ edges: [{ a: 0, b: 1, width: 6 }] }), { x: 100, y: 2 }, 'spawn');
+    const wide = snapKerb(city({ edges: [{ a: 0, b: 1, width: 20 }] }), { x: 100, y: 2 }, 'spawn');
+    expect(Math.abs(wide.point.y)).toBeGreaterThan(Math.abs(narrow.point.y));
+  });
+
+  it('works on a diagonal road, not just an axis-aligned one', () => {
+    const diagonal = city({
+      nodes: [
+        { x: 0, y: 0 },
+        { x: 100, y: 100 },
+      ],
+      edges: [{ a: 0, b: 1, width: 8 }],
+    });
+    // (53,47) is 4.2 units off the centreline — inside the catchment. (60,40)
+    // would be 14.1 and is correctly treated as aimed at somewhere else.
+    const result = snapKerb(diagonal, { x: 53, y: 47 }, 'spawn');
+    expect(result.onKerb).toBe(true);
+    // Still 4 units off the centreline, allowing for the rounding to whole units.
+    const d = Math.abs(result.point.x - result.point.y) / Math.SQRT2;
+    expect(d).toBeGreaterThan(3);
+    expect(d).toBeLessThan(5);
+  });
+
+  it('falls back to the grid when nothing is near enough to have a kerb', () => {
+    const result = snapKerb(city(), { x: 900, y: 900 }, 'spawn');
+    expect(result.onKerb).toBe(false);
+    expect(result.road).toBe(-1);
+    expect(result.point).toEqual({ x: 900, y: 900 });
+  });
+
+  it('gives whole units, because the format stores whole units', () => {
+    const result = snapKerb(city(), { x: 41.372, y: 2.7 }, 'spawn');
+    expect(Number.isInteger(result.point.x)).toBe(true);
+    expect(Number.isInteger(result.point.y)).toBe(true);
+  });
+
+  it('never lands on the carriageway', () => {
+    // A passenger inside the road is the thing this replaces.
+    for (const y of [-3, -1, 0, 1, 3]) {
+      const result = snapKerb(city(), { x: 100, y }, 'spawn');
+      expect(Math.abs(result.point.y), `click y=${y}`).toBeGreaterThanOrEqual(4);
+    }
+  });
+});
+
+describe('kerb catching is generous, landing is precise', () => {
+  it('catches a click that misses the road by a dozen units', () => {
+    // The regression. This used to reuse edgeRadius (8), so a click 13 units
+    // out — about 26 CSS pixels at a normal editing zoom, which reads as ON the
+    // road — fell through to the grid and produced a destination no cab could
+    // reach. The audit caught it, but being caught by the audit is worse than
+    // not happening.
+    const result = snapKerb(city(), { x: 100, y: 13 }, 'destination');
+    expect(result.onKerb).toBe(true);
+    expect(result.point).toEqual({ x: 100, y: 4 });
+  });
+
+  it('still lands exactly on the kerb however wide the miss', () => {
+    // Generous catching must not mean sloppy placement.
+    for (const y of [1, 5, 10, 15, 20, 23]) {
+      const result = snapKerb(city(), { x: 100, y }, 'spawn');
+      expect(result.onKerb, `click y=${y}`).toBe(true);
+      expect(result.point.y, `click y=${y}`).toBe(4);
+    }
+  });
+
+  it('gives up beyond the catchment, where the author meant open ground', () => {
+    const result = snapKerb(city(), { x: 100, y: 60 }, 'spawn');
+    expect(result.onKerb).toBe(false);
+  });
+
+  it('always produces a point the audit will accept', () => {
+    // The property worth having: anything caught is placed somewhere reachable.
+    for (const width of [6, 8, 12, 20]) {
+      const target = city({ edges: [{ a: 0, b: 1, width }] });
+      for (const y of [1, 7, 14, 22]) {
+        const result = snapKerb(target, { x: 100, y }, 'spawn');
+        if (!result.onKerb) continue;
+        expect(Math.abs(result.point.y), `width ${width}, y ${y}`).toBeLessThanOrEqual(
+          reachFromCentreline(width, 'spawn'),
+        );
+      }
+    }
   });
 });

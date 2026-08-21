@@ -26,7 +26,7 @@ import type { CityBox } from '@deadhead/proto';
 
 import { CityDocument } from './document.js';
 import type { Subject } from './audit.js';
-import { pick, snap, type Point, type SnapOptions } from './picking.js';
+import { pick, snap, snapKerb, type Point, type SnapOptions } from './picking.js';
 
 export type ToolKind =
   'select' | 'road' | 'building' | 'spawn' | 'destination' | 'landmark' | 'anchor' | 'erase';
@@ -94,16 +94,26 @@ export function click(
     case 'building':
       return clickBuilding(doc, state, at, context);
 
+    // Spawns and destinations are people, so they snap to the KERB rather than
+    // to the road centreline the general snap() prefers. See snapKerb.
     case 'spawn': {
-      const point = snap(doc.city, at, context.snapOptions).point;
-      const index = doc.addSpawn(point);
-      return { ...state, selection: { kind: 'spawn', index } };
+      const kerb = snapKerb(doc.city, at, 'spawn', context.snapOptions);
+      const index = doc.addSpawn(kerb.point);
+      return {
+        ...state,
+        selection: { kind: 'spawn', index },
+        hint: kerb.onKerb ? '' : 'No road near enough to stand beside.',
+      };
     }
 
     case 'destination': {
-      const point = snap(doc.city, at, context.snapOptions).point;
-      const index = doc.addDestination(point);
-      return { ...state, selection: { kind: 'destination', index } };
+      const kerb = snapKerb(doc.city, at, 'destination', context.snapOptions);
+      const index = doc.addDestination(kerb.point);
+      return {
+        ...state,
+        selection: { kind: 'destination', index },
+        hint: kerb.onKerb ? '' : 'No road near enough to stand beside.',
+      };
     }
 
     case 'landmark': {
