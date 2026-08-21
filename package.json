@@ -29,7 +29,8 @@
     "test:workerd": "npm run test:workerd --workspaces --if-present",
     "simrun": "npm run build --silent && node tools/simrun/dist/cli.js",
     "goldens": "npm run build --silent && node tools/simrun/dist/generate-goldens.js",
-    "check:lockfile": "bash scripts/validate/lockfile.sh"
+    "check:lockfile": "bash scripts/validate/lockfile.sh",
+    "city:01": "npm run build --silent && node tools/cityedit/dist/cities/generate.js"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -345,19 +345,28 @@ export function audit(city: CityJson, options: Partial<AuditOptions> = {}): Find
     index: number,
     kind: 'spawn' | 'destination' | 'landmark',
   ): void => {
+    // A landmark is checked for nothing at all. It is a named silhouette to
+    // navigate BY (DESIGN.md §2.4) — nobody drives to it, and being a building
+    // is the normal case rather than a suspicious one.
+    //
+    // An earlier version warned about landmarks inside buildings. On City 01,
+    // correctly authored, that fired four times out of five landmarks. **A
+    // warning that fires on correct input is worse than no warning**: it trains
+    // whoever reads the report to skim past the section that also holds the
+    // real findings.
+    if (kind === 'landmark') return;
+
     for (let b = 0; b < city.buildings.length; b += 1) {
       if (pointInBox(point, city.buildings[b]!)) {
         add(
           'point-inside-building',
-          kind === 'landmark' ? 'warning' : 'error',
+          'error',
           `${label(kind)} ${index} at (${point.x}, ${point.y}) is inside building ${b}.`,
           { kind, index },
         );
         break;
       }
     }
-
-    if (kind === 'landmark') return; // a landmark is a silhouette, not a place to drive to
 
     const road = nearestRoad(point, city);
     if (road !== null) {
@@ -442,6 +451,64 @@ export function audit(city: CityJson, options: Partial<AuditOptions> = {}): Find
       }
     }
 
+    // A road running through a building. Nothing else catches this: the road
+    // network is perfectly connected, the buildings are perfectly well-formed,
+    // and the city is impassable along that street because `S-07` collides with
+    // the geometry the road is drawn on top of.
+    //
+    // Found by looking at City 01 rather than by any check — the Crease runs
+    // diagonally through a grid whose blocks were authored as solid squares, so
+    // eight Ledger buildings sat squarely across the city's main shortcut. The
+    // audit said "no problems found" and the road was a wall.
+    for (let e = 0; e < city.edges.length; e += 1) {
+      const edge = city.edges[e]!;
+      const a = city.nodes[edge.a];
+      const b = city.nodes[edge.b];
+      if (a === undefined || b === undefined) continue;
+
+      for (let g = 0; g < city.buildings.length; g += 1) {
+        if (!segmentHitsBox(a, b, city.buildings[g]!, edge.width / 2)) continue;
+        add(
+          'road-through-building',
+          'error',
+          `Road ${e} runs through building ${g}. A cab cannot drive it — S-07 ` +
+            `collides with the building whatever the road is drawn on top of.`,
+          { kind: 'edge', index: e },
+        );
+        break;
+      }
+    }
+
+    // Two streets that cross on the map but share no junction. Every other
+    // rule misses this: both roads are individually well-connected, so strong
+    // connectivity is satisfied and nothing is a dead end — the city simply has
+    // a crossroads you cannot turn at. It looks completely normal and drives
+    // like a wall.
+    for (let i = 0; i < city.edges.length; i += 1) {
+      for (let j = i + 1; j < city.edges.length; j += 1) {
+        const p = city.edges[i]!;
+        const q = city.edges[j]!;
+        // Sharing an endpoint means they already meet.
+        if (p.a === q.a || p.a === q.b || p.b === q.a || p.b === q.b) continue;
+
+        const at = segmentCrossing(
+          city.nodes[p.a]!,
+          city.nodes[p.b]!,
+          city.nodes[q.a]!,
+          city.nodes[q.b]!,
+        );
+        if (at === null) continue;
+
+        add(
+          'crossing-without-junction',
+          'error',
+          `Roads ${i} and ${j} cross at (${at.x.toFixed(0)}, ${at.y.toFixed(0)}) but share no ` +
+            `junction, so a cab cannot turn between them. Split one at the crossing.`,
+          { kind: 'edge', index: i },
+        );
+      }
+    }
+
     // A junction nothing connects to is authored-but-orphaned; worth saying
     // separately because "unreachable" would otherwise be the only clue.
     for (let node = 0; node < city.nodes.length; node += 1) {
@@ -488,6 +555,25 @@ export function audit(city: CityJson, options: Partial<AuditOptions> = {}): Find
       );
     }
   };
+  // A name nothing points at is a street sign that was authored and never hung.
+  // It is not an error — the city loads and plays — but it is always a mistake,
+  // and it is invisible without being told: the names are all present and
+  // correct in the table, they are simply orphaned.
+  //
+  // This rule exists because exactly that happened to City 01. Eight street
+  // names were added and a no-op in the builder meant none was ever applied, so
+  // every sign in the city would have been blank and nothing else in the
+  // pipeline would have said a word.
+  const referenced = new Set<number>();
+  for (const list of [city.nodes, city.spawns, city.destinations, city.landmarks]) {
+    for (const item of list) if (item.name !== undefined) referenced.add(item.name);
+  }
+  city.names.forEach((text, index) => {
+    if (!referenced.has(index)) {
+      add('unused-name', 'warning', `Name ${index} ("${text}") is not used by anything.`);
+    }
+  });
+
   city.nodes.forEach((node, index) => checkName(node.name, 'node', index));
   city.spawns.forEach((point, index) => checkName(point.name, 'spawn', index));
   city.destinations.forEach((point, index) => checkName(point.name, 'destination', index));
@@ -498,6 +584,88 @@ export function audit(city: CityJson, options: Partial<AuditOptions> = {}): Find
     ...findings.filter((f) => f.severity === 'error'),
     ...findings.filter((f) => f.severity === 'warning'),
   ];
+}
+
+/**
+ * Does a carriageway of the given half-width overlap a box?
+ *
+ * The box is grown by `halfWidth` and tested against the centreline, which
+ * squares off the road's corners — conservative in the safe direction, since a
+ * road that merely grazes a corner is worth looking at anyway. The margin comes
+ * off again so that a street running *alongside* a building with its authored
+ * pavement is not reported.
+ */
+function segmentHitsBox(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  box: CityBox,
+  halfWidth: number,
+): boolean {
+  // A whole unit of slack, so a road laid exactly against a kerb line is fine.
+  const margin = Math.max(0, halfWidth - 1);
+  const minX = box.minX - margin;
+  const minY = box.minY - margin;
+  const maxX = box.maxX + margin;
+  const maxY = box.maxY + margin;
+
+  // Slab clip of the segment against the expanded box.
+  let t0 = 0;
+  let t1 = 1;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+
+  for (const [p, q] of [
+    [-dx, a.x - minX],
+    [dx, maxX - a.x],
+    [-dy, a.y - minY],
+    [dy, maxY - a.y],
+  ] as const) {
+    if (p === 0) {
+      if (q < 0) return false; // parallel and outside
+      continue;
+    }
+    const r = q / p;
+    if (p < 0) {
+      if (r > t1) return false;
+      if (r > t0) t0 = r;
+    } else {
+      if (r < t0) return false;
+      if (r < t1) t1 = r;
+    }
+  }
+  return t0 < t1;
+}
+
+/**
+ * Where two segments cross, or `null` if they do not.
+ *
+ * Proper segment intersection rather than a bounding-box test: two streets
+ * whose boxes overlap usually do not cross, and reporting those would bury the
+ * real findings.
+ */
+function segmentCrossing(
+  p1: { x: number; y: number },
+  p2: { x: number; y: number },
+  q1: { x: number; y: number },
+  q2: { x: number; y: number },
+): { x: number; y: number } | null {
+  const rx = p2.x - p1.x;
+  const ry = p2.y - p1.y;
+  const sx = q2.x - q1.x;
+  const sy = q2.y - q1.y;
+
+  const denominator = rx * sy - ry * sx;
+  if (denominator === 0) return null; // parallel or collinear
+
+  const t = ((q1.x - p1.x) * sy - (q1.y - p1.y) * sx) / denominator;
+  const u = ((q1.x - p1.x) * ry - (q1.y - p1.y) * rx) / denominator;
+
+  // Strictly inside both segments — meeting at an endpoint is not a crossing,
+  // and those are filtered by the shared-junction check anyway.
+  const inside = (v: number): boolean => v > 0.001 && v < 0.999;
+  if (!inside(t) || !inside(u)) return null;
+
+  return { x: p1.x + t * rx, y: p1.y + t * ry };
 }
 
 function label(kind: Subject['kind']): string {

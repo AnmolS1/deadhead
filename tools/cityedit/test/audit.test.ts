@@ -149,16 +149,21 @@ describe('points somewhere impossible', () => {
     expect(rules(squareCity({ spawns: [{ x: 100, y: 6 }] }))).not.toContain('no-road-access');
   });
 
-  it('only warns about a landmark in a building, and never about its road access', () => {
-    // A landmark is a silhouette to navigate BY (DESIGN.md §2.4). Nobody drives
-    // to it, and it being a building is the normal case rather than an error.
+  it('says nothing at all about a landmark', () => {
+    // A landmark is a named silhouette to navigate BY (DESIGN.md §2.4). Nobody
+    // drives to it, and being a building is the NORMAL case.
+    //
+    // This used to warn. On City 01, correctly authored, it fired on four of
+    // five landmarks — and a warning that fires on correct input is worse than
+    // no warning, because it teaches whoever reads the report to skim past the
+    // section that also holds the real findings.
     const city = squareCity({
       landmarks: [{ x: 100, y: 100 }],
       buildings: [{ minX: 80, minY: 80, maxX: 120, maxY: 120 }],
     });
-    const found = audit(city);
-    expect(found.find((f) => f.rule === 'point-inside-building')?.severity).toBe('warning');
-    expect(found.map((f) => f.rule)).not.toContain('no-road-access');
+    const found = audit(city).map((f) => f.rule);
+    expect(found).not.toContain('point-inside-building');
+    expect(found).not.toContain('no-road-access');
   });
 });
 
@@ -384,5 +389,108 @@ describe('reporting', () => {
 
   it('says so plainly when there is nothing wrong', () => {
     expect(formatFindings(audit(squareCity()))).toBe('No problems found.');
+  });
+});
+
+describe('a road running through a building', () => {
+  it('is an error, because the road is a wall', () => {
+    // Nothing else catches this. The network is perfectly connected, the
+    // buildings are perfectly well-formed, and S-07 collides with the geometry
+    // whatever the road is drawn on top of. Twenty-seven of these existed in
+    // City 01 while the audit said "no problems found".
+    const found = audit(
+      squareCity({ buildings: [{ minX: 80, minY: -20, maxX: 120, maxY: 20 }] }),
+    ).find((f) => f.rule === 'road-through-building');
+    expect(found?.severity).toBe('error');
+  });
+
+  it('leaves a road running alongside a building alone', () => {
+    // The common, correct case: a street with its pavement beside a block. A
+    // rule that fired here would fire on every well-authored city.
+    const beside = squareCity({ buildings: [{ minX: 40, minY: 14, maxX: 160, maxY: 60 }] });
+    expect(rules(beside)).not.toContain('road-through-building');
+  });
+
+  it('accounts for the carriageway width, not just the centreline', () => {
+    // A wide road clips a building a narrow one would miss.
+    const box = { minX: 90, minY: 6, maxX: 130, maxY: 40 };
+    expect(
+      rules(squareCity({ buildings: [box], edges: [{ a: 0, b: 1, width: 4 }] })),
+    ).not.toContain('road-through-building');
+    expect(rules(squareCity({ buildings: [box], edges: [{ a: 0, b: 1, width: 24 }] }))).toContain(
+      'road-through-building',
+    );
+  });
+});
+
+describe('two roads crossing without a junction', () => {
+  it('is an error, even though both roads are well connected', () => {
+    // The gap every other rule leaves. Strong connectivity is satisfied, no
+    // junction is a dead end, and the city has a crossroads you cannot turn at.
+    // It looks completely normal and drives like a wall.
+    const city = squareCity({
+      nodes: [
+        { x: 0, y: 0 },
+        { x: 200, y: 0 },
+        { x: 200, y: 200 },
+        { x: 0, y: 200 },
+        { x: 100, y: -60 },
+        { x: 100, y: 260 },
+      ],
+      edges: [
+        { a: 0, b: 1, width: 8 },
+        { a: 1, b: 2, width: 8 },
+        { a: 2, b: 3, width: 8 },
+        { a: 3, b: 0, width: 8 },
+        { a: 4, b: 5, width: 8 }, // straight through the block, crossing two roads
+      ],
+    });
+    expect(rules(city)).toContain('crossing-without-junction');
+  });
+
+  it('says nothing about roads that merely meet at a junction', () => {
+    expect(rules(squareCity())).not.toContain('crossing-without-junction');
+  });
+
+  it('says nothing about roads whose boxes overlap but which do not cross', () => {
+    // A proper segment test, not a bounding-box one. Two streets in the same
+    // quarter of the map usually do not cross, and reporting those would bury
+    // the real findings.
+    const city = squareCity({
+      nodes: [
+        { x: 0, y: 0 },
+        { x: 200, y: 0 },
+        { x: 200, y: 200 },
+        { x: 0, y: 200 },
+        { x: 20, y: 40 },
+        { x: 60, y: 180 },
+      ],
+      edges: [
+        { a: 0, b: 1, width: 8 },
+        { a: 1, b: 2, width: 8 },
+        { a: 2, b: 3, width: 8 },
+        { a: 3, b: 0, width: 8 },
+        { a: 4, b: 5, width: 8 },
+      ],
+    });
+    expect(rules(city)).not.toContain('crossing-without-junction');
+  });
+});
+
+describe('a name nothing uses', () => {
+  it('warns, because it is always a mistake and never visible', () => {
+    // This rule exists because exactly that happened to City 01: eight street
+    // names were added, a no-op in the builder meant none was applied, and
+    // every sign in the city would have been blank with nothing to say so.
+    const found = audit(squareCity({ names: ['Cannon Street'] })).find(
+      (f) => f.rule === 'unused-name',
+    );
+    expect(found?.severity).toBe('warning');
+    expect(found?.message).toContain('Cannon Street');
+  });
+
+  it('says nothing when the name is referenced', () => {
+    const city = squareCity({ names: ['Cannon Street'], spawns: [{ x: 10, y: 4, name: 0 }] });
+    expect(rules(city)).not.toContain('unused-name');
   });
 });

@@ -287,6 +287,31 @@ export class CityDocument {
     });
   }
 
+  /**
+   * Name a junction, for `W-06`'s street signage.
+   *
+   * Pass `undefined` to clear it. Validated against the names table here rather
+   * than left to `audit`, because a dangling name index is a blank sign in the
+   * shipped game and there is no reason to let one be created.
+   */
+  nameNode(index: number, name: number | undefined): void {
+    if (this.state.nodes[index] === undefined) throw new RangeError(`no junction ${index}`);
+    if (name !== undefined && this.state.names[name] === undefined) {
+      throw new RangeError(`no name ${name}`);
+    }
+    this.commit({
+      ...this.state,
+      nodes: this.state.nodes.map((node, i) => {
+        if (i !== index) return node;
+        if (name === undefined) {
+          const { name: _dropped, ...rest } = node;
+          return rest;
+        }
+        return { ...node, name };
+      }),
+    });
+  }
+
   /** Change a road's width or flags — the "manual override" of `W-02`'s brief. */
   updateEdge(index: number, changes: Partial<Omit<CityEdge, 'a' | 'b'>>): void {
     if (this.state.edges[index] === undefined) throw new RangeError(`no road ${index}`);

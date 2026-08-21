@@ -359,6 +359,38 @@ Object.defineProperty(globalThis, '__cityedit', {
   get: () => ({ city: doc.city, findings: doc.audit(), tool: state.tool }),
 });
 
+/**
+ * Open a city straight from a URL: `?city=/path/to/01.json`.
+ *
+ * A dev convenience with a real purpose — it means a generated city can be
+ * looked at without clicking through a file dialog, so the loop between editing
+ * `cities/city-01.ts` and *seeing* the result is a page refresh. Same-origin
+ * only, because this is a local tool and there is nothing else it should fetch.
+ */
+function loadFromQuery(): void {
+  const target = new URLSearchParams(location.search).get('city');
+  if (target === null) return;
+  if (/^[a-z]+:/i.test(target)) {
+    hintBar.textContent = 'Refusing to load a city from another origin.';
+    return;
+  }
+
+  void fetch(target)
+    .then((response) =>
+      response.ok ? response.json() : Promise.reject(new Error(String(response.status))),
+    )
+    .then((json: CityJson) => {
+      doc = new CityDocument(json);
+      state = { ...cancel(state), selection: null };
+      hintBar.textContent = `Loaded ${target}.`;
+      invalidate();
+    })
+    .catch((error: unknown) => {
+      hintBar.textContent = `Could not load ${target}: ${String(error)}`;
+    });
+}
+
 addEventListener('resize', resize);
 buildToolButtons();
 resize();
+loadFromQuery();
