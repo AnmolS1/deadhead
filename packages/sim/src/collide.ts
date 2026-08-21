@@ -278,6 +278,27 @@ export function sweepCar(
 
   if (!blockedX && !blockedY) return NO_COLLISION;
 
+  // Wedged: nothing moved, on either axis. That is normal against a wall — but
+  // it is *permanent* if the cab began the tick already overlapping, because
+  // every candidate position overlaps too and there is nothing here that can
+  // reduce an overlap.
+  //
+  // A cab gets into that state by **rotating**. Only translation is checked
+  // against geometry; heading is applied unconditionally, so a cab resting
+  // flush against a wall that steers sweeps a corner in by a fraction of a
+  // unit. Found in City 01: a cab penetrating a building by 0.017 units sat
+  // motionless for the rest of the run, holding brake, velocity exactly zero.
+  //
+  // So when — and only when — the sweep achieved nothing and the starting pose
+  // is invalid, push the cab back out. See {@link pushOut}.
+  if (blockedX && blockedY && overlapsStatic(geometry, x, y, heading, halfLength, halfWidth)) {
+    const freed = pushOut(geometry, x, y, heading, halfLength, halfWidth);
+    if (freed !== null) {
+      x = freed.x;
+      y = freed.y;
+    }
+  }
+
   const lostX = blockedX ? getCar(world, slot, Car.VelocityX) : 0;
   const lostY = blockedY ? getCar(world, slot, Car.VelocityY) : 0;
 
@@ -292,6 +313,55 @@ export function sweepCar(
   }
 
   return { hit: true, impact };
+}
+
+/**
+ * How far out to look for clear ground, in whole units.
+ *
+ * Overlaps only ever arise from a rotation sweeping a corner in, so they are a
+ * fraction of a unit deep and the first probe almost always succeeds. The cap
+ * exists so a cab that has somehow ended up deep inside geometry gives up
+ * rather than scanning the map.
+ */
+const PUSH_OUT_LIMIT = 4;
+
+/**
+ * The nearest pose clear of geometry, or `null` if there is none nearby.
+ *
+ * Probes the four axis directions at whole-unit distances, nearest first. Axis
+ * order is fixed and the search is integer throughout, so two machines agree —
+ * this runs inside `step()` and anything here is replayed (ADR 0004).
+ *
+ * Deliberately **not** a true minimum-translation-vector: computing exact
+ * penetration depth for an oriented box against an AABB needs SAT with depth,
+ * and this is a recovery path from a state that should be a fraction of a unit
+ * deep. The nearest clear whole unit is close enough and much easier to be sure
+ * is deterministic.
+ */
+function pushOut(
+  geometry: StaticGeometry,
+  x: number,
+  y: number,
+  heading: number,
+  halfLength: number,
+  halfWidth: number,
+): { readonly x: number; readonly y: number } | null {
+  for (let distance = 1; distance <= PUSH_OUT_LIMIT; distance += 1) {
+    const offset = fxFromInt(distance);
+    // Fixed order: +y, -y, +x, -x. Arbitrary, but identical everywhere.
+    const candidates: readonly (readonly [number, number])[] = [
+      [x, y + offset],
+      [x, y - offset],
+      [x + offset, y],
+      [x - offset, y],
+    ];
+    for (const [cx, cy] of candidates) {
+      if (!overlapsStatic(geometry, cx, cy, heading, halfLength, halfWidth)) {
+        return { x: cx, y: cy };
+      }
+    }
+  }
+  return null;
 }
 
 /** An empty city, for tests and for a run that has not loaded one yet. */
