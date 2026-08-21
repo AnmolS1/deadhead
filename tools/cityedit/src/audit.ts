@@ -47,6 +47,7 @@
  * not apply and would only obscure the geometry.
  */
 import { EdgeFlags, type CityBox, type CityJson, type CityPoint } from '@deadhead/proto';
+import { CarTuning, FareTuning, FX_ONE } from '@deadhead/sim';
 
 export type Severity = 'error' | 'warning';
 
@@ -67,13 +68,13 @@ export interface Finding {
 
 export interface AuditOptions {
   /**
-   * How far a spawn or destination may sit from the nearest carriageway edge.
+   * Extra slack on top of the *derived* reach, in units.
    *
-   * Passengers stand on the pavement, so some distance is correct; too much and
-   * the cab cannot reach them. Measured to the road *centreline*, so this has
-   * to clear half the widest carriageway plus a pavement.
+   * Normally zero. The limit is not a constant here — see
+   * {@link reachFromCentreline}, which computes it per road from the sim's own
+   * tuning, because an invented number was wrong by nearly a factor of two.
    */
-  readonly maxRoadDistance: number;
+  readonly reachSlack: number;
   /**
    * The shortest a fare may be, in units.
    *
@@ -86,9 +87,32 @@ export interface AuditOptions {
 }
 
 export const DEFAULT_AUDIT_OPTIONS: AuditOptions = {
-  maxRoadDistance: 12,
+  reachSlack: 0,
   minFareDistance: 60,
 };
+
+/** Half the cab's width, in whole units. */
+const CAB_HALF_WIDTH = CarTuning.halfWidth / FX_ONE;
+
+/**
+ * How far from a road's centreline a passenger can be and still be served.
+ *
+ * Derived, not chosen. A cab's centre can sit at most `width/2 - halfWidth`
+ * from the centreline while staying on the carriageway, and it collects
+ * someone within `FareTuning.pickupRadius` of that. Adding the two is the
+ * furthest a spawn can be and still be reachable at all.
+ *
+ * **The first version of this file used a flat 12 units**, described as "half
+ * the widest carriageway plus a pavement". Against a standard 8-wide road the
+ * real figure is 6.5 — so a spawn placed 10 units out passed the audit and
+ * could never be picked up. The rule looked careful and was wrong by nearly a
+ * factor of two, which is exactly why it now reads the sim's constants instead
+ * of restating them.
+ */
+export function reachFromCentreline(roadWidth: number, kind: 'spawn' | 'destination'): number {
+  const radius = (kind === 'spawn' ? FareTuning.pickupRadius : FareTuning.dropoffRadius) / FX_ONE;
+  return Math.max(0, roadWidth / 2 - CAB_HALF_WIDTH) + radius;
+}
 
 // ---------------------------------------------------------------------------
 // Geometry
@@ -126,17 +150,38 @@ export function distanceToSegment(
   return Math.hypot(point.x - (ax + t * dx), point.y - (ay + t * dy));
 }
 
-/** Distance from a point to the nearest road centreline. `Infinity` if there are no roads. */
-export function distanceToNearestRoad(point: { x: number; y: number }, city: CityJson): number {
-  let best = Number.POSITIVE_INFINITY;
-  for (const edge of city.edges) {
+/** The nearest road to a point, with the width that decides how far a cab can reach. */
+export interface NearestRoad {
+  readonly index: number;
+  readonly distance: number;
+  readonly width: number;
+}
+
+/**
+ * The nearest road centreline, or `null` when the city has none.
+ *
+ * Carries the **width** as well as the distance, because how far a passenger
+ * may stand from a road depends on how wide that road is — a cab on a narrow
+ * lane cannot get as far off the centreline as one on a boulevard. Returning
+ * only a distance is what made the first version of this file compare against
+ * a flat constant.
+ */
+export function nearestRoad(point: { x: number; y: number }, city: CityJson): NearestRoad | null {
+  let best: NearestRoad | null = null;
+  for (let index = 0; index < city.edges.length; index += 1) {
+    const edge = city.edges[index]!;
     const a = city.nodes[edge.a];
     const b = city.nodes[edge.b];
     if (a === undefined || b === undefined) continue; // validateCity's problem, not ours
     const distance = distanceToSegment(point, a.x, a.y, b.x, b.y);
-    if (distance < best) best = distance;
+    if (best === null || distance < best.distance) best = { index, distance, width: edge.width };
   }
   return best;
+}
+
+/** Distance from a point to the nearest road centreline. `Infinity` if there are no roads. */
+export function distanceToNearestRoad(point: { x: number; y: number }, city: CityJson): number {
+  return nearestRoad(point, city)?.distance ?? Number.POSITIVE_INFINITY;
 }
 
 // ---------------------------------------------------------------------------
@@ -314,14 +359,18 @@ export function audit(city: CityJson, options: Partial<AuditOptions> = {}): Find
 
     if (kind === 'landmark') return; // a landmark is a silhouette, not a place to drive to
 
-    if (city.edges.length > 0) {
-      const distance = distanceToNearestRoad(point, city);
-      if (distance > settings.maxRoadDistance) {
+    const road = nearestRoad(point, city);
+    if (road !== null) {
+      // Derived from the sim's own tuning rather than a chosen number, and per
+      // road rather than global — see reachFromCentreline.
+      const reach = reachFromCentreline(road.width, kind) + settings.reachSlack;
+      if (road.distance > reach) {
         add(
           'no-road-access',
           'error',
-          `${label(kind)} ${index} is ${distance.toFixed(1)} units from the nearest road ` +
-            `(limit ${settings.maxRoadDistance}), so a cab cannot reach it.`,
+          `${label(kind)} ${index} is ${road.distance.toFixed(1)} units from the nearest road ` +
+            `(a cab on that ${road.width}-wide carriageway can only reach ${reach.toFixed(1)}), ` +
+            `so it can never be ${kind === 'spawn' ? 'picked up' : 'delivered to'}.`,
           { kind, index },
         );
       }
