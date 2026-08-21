@@ -10,5 +10,9 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "include": ["src/**/*.ts"],
-  "references": [{ "path": "../../packages/proto" }]
+  "references": [
+    { "path": "../../packages/proto" },
+    { "path": "../../packages/sim" },
+    { "path": "../../packages/client" }
+  ]
 }

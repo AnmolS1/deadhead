@@ -1,0 +1,25 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>deadhead · city editor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="/src/editor.css" />
+<div id="app">
+  <header id="bar">
+    <strong>city editor</strong>
+    <span id="tools"></span>
+    <span class="spacer"></span>
+    <button id="undo" type="button" title="Undo (⌘Z)">undo</button>
+    <button id="redo" type="button" title="Redo (⇧⌘Z)">redo</button>
+    <button id="load" type="button">load…</button>
+    <button id="save" type="button">export JSON</button>
+  </header>
+  <canvas id="canvas"></canvas>
+  <aside id="panel">
+    <section id="status"></section>
+    <section id="findings"></section>
+  </aside>
+  <footer id="hint"></footer>
+  <input id="file" type="file" accept="application/json" hidden />
+</div>
+<!-- External module, never inline: mirrors the game's script-src 'self'. -->
+<script type="module" src="/src/main.ts"></script>
