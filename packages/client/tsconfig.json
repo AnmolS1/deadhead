@@ -2,11 +2,16 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    // Vite bundles this package from source, so declaration output is all the
-    // root `tsc --build` needs from it. Bundler resolution matches Vite's.
+    // Bundler resolution matches Vite's.
+    //
+    // This used to be `emitDeclarationOnly`, on the reasoning that Vite bundles
+    // the package from source so declarations were all `tsc --build` needed.
+    // That held only while the client was its own sole consumer. `W-02`'s city
+    // editor imports `@deadhead/client` as a package — it is specified to reuse
+    // the game renderer — and a declaration-only package has no runtime entry
+    // for a bundler to resolve. So it emits JS now, like `sim` and `proto`.
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "emitDeclarationOnly": true,
     "rootDir": "src",
     "outDir": "dist",
     "tsBuildInfoFile": "dist/.tsbuildinfo"

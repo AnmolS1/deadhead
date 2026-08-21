@@ -4,6 +4,12 @@
   "private": true,
   "type": "module",
   "description": "Canvas renderer, input, audio and UI. Imports the sim; never mutates it.",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
   "scripts": {
     "typecheck": "tsc -p tsconfig.test.json",
     "test": "vitest run",

@@ -33,3 +33,6 @@ dist-app/
 # S-02 purity-gate probes. Written and removed by scripts/validate/sim-purity.sh;
 # listed here so an interrupted run can never leave one committed.
 packages/sim/src/__purity_probe_*.ts
+
+# Playwright MCP scratch output from browser-driven verification.
+.playwright-mcp/
