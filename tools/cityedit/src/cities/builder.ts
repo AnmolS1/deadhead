@@ -247,11 +247,23 @@ export class Builder {
     readonly bounds: readonly [number, number, number, number];
     readonly cell?: number;
     readonly pavement?: number;
+    /**
+     * Largest a merged block may get, in cells, on either axis.
+     *
+     * Without a cap the merge is *maximal*, and a long corridor between two
+     * parallel streets becomes a single building hundreds of units long. It
+     * collides correctly and looks absurd: `W-05` draws every block as one
+     * folded flap with one crease, so a 900-unit block is one 900-unit fold.
+     * Capping keeps blocks building-sized, which is also what makes a district
+     * read as a district rather than as a slab.
+     */
+    readonly maxCells?: number;
     /** Regions to leave empty — squares, plazas, the mouth of a bridge. */
     readonly keepClear?: readonly CityBox[];
   }): void {
     const cell = options.cell ?? 16;
     const pavement = options.pavement ?? 6;
+    const maxCells = options.maxCells ?? 4;
     const [minX, minY, maxX, maxY] = options.bounds;
     const keepClear = options.keepClear ?? [];
 
@@ -288,10 +300,10 @@ export class Builder {
         if (!free[row]![col]) continue;
 
         let width = 0;
-        while (col + width < cols && free[row]![col + width]) width += 1;
+        while (col + width < cols && width < maxCells && free[row]![col + width]) width += 1;
 
         let height = 1;
-        grow: while (row + height < rows) {
+        grow: while (row + height < rows && height < maxCells) {
           for (let k = 0; k < width; k += 1) {
             if (!free[row + height]![col + k]) break grow;
           }

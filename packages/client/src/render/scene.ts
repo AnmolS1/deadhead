@@ -58,7 +58,10 @@ import {
 } from '@deadhead/sim';
 
 import { type GroundCache } from './chunks.js';
-import { lerpPose, shouldInterpolate, type Pose } from './interp.js';
+import { cab, destination, landmark, passenger, posed } from './figures.js';
+import { Ink } from './palette.js';
+import { SHADOW_X, SHADOW_Y, type PaperContext } from './paper.js';
+import { angleToRadians, lerpPose, shouldInterpolate, type Pose } from './interp.js';
 import {
   applyCamera,
   containsPoint,
@@ -343,14 +346,11 @@ export function drawableBounds(drawable: Drawable, radius: number): Bounds {
  * `drawImage` demands one — a context is only ever called, never handed to a
  * browser API, so a double that records calls is a complete stand-in.
  */
-export interface FrameContext {
-  save(): void;
-  restore(): void;
+export interface FrameContext extends PaperContext {
   translate(x: number, y: number): void;
   rotate(angle: number): void;
   scale(x: number, y: number): void;
   clearRect(x: number, y: number, w: number, h: number): void;
-  fillRect(x: number, y: number, w: number, h: number): void;
   /**
    * `unknown` rather than `CanvasImageSource` on purpose.
    *
@@ -362,7 +362,6 @@ export interface FrameContext {
    * only caller.)
    */
   drawImage(image: unknown, dx: number, dy: number, dw: number, dh: number): void;
-  fillStyle: string;
   globalAlpha: number;
 }
 
@@ -373,6 +372,11 @@ export interface FrameInput<TSurface> {
   readonly view: ViewportState;
   /** Interpolation fraction from `loop.ts`, in `[0, 1)`. */
   readonly alpha: number;
+  /** The city, for the layers that draw authored points rather than sim state. */
+  readonly cityJson?: {
+    readonly destinations: readonly { readonly x: number; readonly y: number }[];
+    readonly landmarks: readonly { readonly x: number; readonly y: number }[];
+  };
   /** The ground cache. Omitted by `W-02`'s editor, which draws its own ground. */
   readonly ground?: {
     readonly cache: GroundCache<TSurface>;
@@ -445,49 +449,109 @@ function drawLayer<TSurface>(
     }
 
     case 'markings':
-    case 'props':
-      // Authored per city and drawn into the ground chunks by W-03's painter,
-      // so there is nothing to do here at C-04. They keep their slot in the
-      // order because W-06's signage is a prop that must sit above the road
-      // and below the cars.
+      // Road markings are creases, painted into the ground chunks by
+      // `city.ts`. The slot stays because `W-06`'s signage will want it.
       return;
 
+    case 'props': {
+      // Landmarks and destinations: the only wayfinding in the game, since
+      // DESIGN.md §2.4 rules out a floating arrow. Above the road, below the
+      // cars, which is exactly why this layer sits where it does.
+      const city = input.cityJson;
+      if (city === undefined) return;
+
+      const bounds = visibleBounds(view);
+      context.lineWidth = 0.4;
+
+      for (const point of city.destinations) {
+        stats.props.considered += 1;
+        if (!containsPoint(bounds, point.x, point.y, CullMargins.props)) continue;
+        stats.props.drawn += 1;
+        posed(context, point.x, point.y, 0, (ctx) => destination(ctx, 2.4));
+      }
+      for (const point of city.landmarks) {
+        stats.props.considered += 1;
+        if (!containsPoint(bounds, point.x, point.y, 14)) continue;
+        stats.props.drawn += 1;
+        posed(context, point.x, point.y, 0, (ctx) => landmark(ctx, 9));
+      }
+      return;
+    }
+
     case 'shadows': {
-      // One flat ellipse per body. Drawn as a rect until W-05, but drawn from
-      // the same culled list as the bodies so the two can never disagree.
+      // Every moving thing drops the same shadow the buildings do, from the
+      // same light (palette.ts). That is what keeps a cab on the sheet rather
+      // than floating above it — and why the offset is imported rather than
+      // written out here where it could drift.
+      const scratch: LayerCount = { considered: 0, drawn: 0 };
       const cars = visibleCars(previous, current, view, alpha, stats.shadows);
-      context.globalAlpha = 0.25;
-      context.fillStyle = '#000000';
-      for (const car of cars) context.fillRect(car.pose.x - 2, car.pose.y - 1, 4, 2);
-      context.globalAlpha = 1;
+      const traffic = visibleTraffic(previous, current, view, alpha, scratch);
+
+      // A car sits ON the sheet, not lifted off it like a building, so its
+      // shadow is a fraction of the building offset — and it turns with the
+      // car. An axis-aligned shadow under a rotating body reads as a separate
+      // object sliding around underneath it.
+      const drop = 0.28;
+      context.fillStyle = Ink.graphiteShadow;
+      for (const body of [...traffic, ...cars]) {
+        posed(
+          context,
+          body.pose.x + SHADOW_X * drop,
+          body.pose.y + SHADOW_Y * drop,
+          angleToRadians(body.pose.heading),
+          (ctx) => {
+            ctx.beginPath();
+            ctx.moveTo(-1.1, -0.5);
+            ctx.lineTo(1.1, -0.5);
+            ctx.lineTo(1.1, 0.5);
+            ctx.lineTo(-1.1, 0.5);
+            ctx.closePath();
+            ctx.fill();
+          },
+        );
+      }
       return;
     }
 
     case 'traffic': {
+      // NPCs are the same folded car, in ink. They are scenery, so they never
+      // touch the accent — the only saturated thing on screen is the player.
       const traffic = visibleTraffic(previous, current, view, alpha, stats.traffic);
-      context.fillStyle = '#5a6472';
-      for (const npc of traffic) context.fillRect(npc.pose.x - 2, npc.pose.y - 1, 4, 2);
+      context.lineWidth = 0.16;
+      for (const npc of traffic) {
+        posed(context, npc.pose.x, npc.pose.y, angleToRadians(npc.pose.heading), (ctx) =>
+          cab(ctx, true),
+        );
+      }
       return;
     }
 
     case 'cars': {
       const cars = visibleCars(previous, current, view, alpha, stats.cars);
+      context.lineWidth = 0.16;
       for (const car of cars) {
-        // A carrying cab reads differently from an empty one. That contrast is
-        // the entire game (DESIGN.md §2.1) and C-08 owns making it felt; this
-        // is only a stand-in so the distinction exists from the first frame.
+        // An empty cab is the accent; a carrying one goes quiet. ADR 0001
+        // reserves the accent for motion and the empty-cab state, and an empty
+        // cab is one burning its deadhead clock — so the screen is loud while
+        // you are losing and calm while you are earning, which is the correct
+        // way round and costs nothing to render.
         const carrying = getCar(current, car.slot, Car.CarriedPassenger) !== NO_PASSENGER;
-        context.fillStyle = carrying ? '#f0c419' : '#c8ccd2';
-        context.fillRect(car.pose.x - 2, car.pose.y - 1, 4, 2);
+        posed(context, car.pose.x, car.pose.y, angleToRadians(car.pose.heading), (ctx) =>
+          cab(ctx, carrying),
+        );
       }
       return;
     }
 
     case 'pickups': {
       const waiting = visiblePassengers(current, view, stats.pickups);
-      context.fillStyle = '#3fb27f';
-      for (const person of waiting)
-        context.fillRect(person.pose.x - 0.5, person.pose.y - 0.5, 1, 1);
+      context.lineWidth = 0.16;
+      for (const person of waiting) {
+        // Rush against Meter is told apart by posture and value, never by a
+        // second hue — the accent is spoken for.
+        const rush = (person.flags & PassengerFlags.Rush) !== 0;
+        posed(context, person.pose.x, person.pose.y, 0, (ctx) => passenger(ctx, rush));
+      }
       return;
     }
 
