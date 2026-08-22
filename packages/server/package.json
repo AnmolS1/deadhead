@@ -10,6 +10,8 @@
     "types": "wrangler types ./src/worker-configuration.d.ts",
     "types:check": "wrangler types ./src/worker-configuration.d.ts --check",
     "dev": "wrangler dev",
+    "db:migrate:local": "wrangler d1 migrations apply deadhead --local",
+    "db:migrate": "wrangler d1 migrations apply deadhead --remote",
     "deploy:dry": "wrangler deploy --dry-run --outdir dist-app",
     "deploy": "wrangler deploy"
   },
