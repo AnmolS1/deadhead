@@ -1,0 +1,86 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+
+  // `ponderance-play` — the game backend. See CLAUDE.md → Architecture.
+  //
+  // This Worker has **no `routes` block, deliberately**. The site
+  // (`ponderance-prod`) reaches it through a service binding named `PLAY`, and
+  // `ponderance`'s own `wrangler-routes.sh` gate requires the site to declare
+  // exactly two routes with no wildcards. A route here would not trip that gate
+  // — it is a different Worker — but it would give the game a second public
+  // origin, and `connect-src 'self'` is the whole reason this is same-origin.
+  //
+  // Deploys independently of the site: the Astro adapter *generates* the site's
+  // wrangler config, so Durable Object class exports and namespace lifecycle
+  // must not live in a file the build regenerates. That is the entire reason
+  // this package exists separately.
+  "name": "ponderance-play",
+  "main": "src/worker.ts",
+
+  // Two things are going on in this one line.
+  //
+  // 1. **No `compatibility_flags`.** On 2026-08-04 and later, `nodejs_compat`
+  //    and `nodejs_compat_v2` are enabled **by default** by the compatibility
+  //    date itself; Wrangler, Miniflare and Vitest Pool Workers ignore the
+  //    flags as redundant. `B-01`'s brief says to set
+  //    `compatibility_flags: ["nodejs_compat"]` — that predates the change and
+  //    is stale. Do not add it back: a no-op that reads as a requirement is
+  //    worse than nothing.
+  //    https://developers.cloudflare.com/changelog/post/2026-08-04-nodejs-compat-default/
+  //
+  // 2. **This is NOT today's date, and it cannot be.** Cloudflare's
+  //    best-practices guide says to set it to today; taken literally that does
+  //    not boot. The ceiling is the newest date the *installed* `workerd`
+  //    supports — 2026-08-18 for the binary behind wrangler 4.123.0 — and a
+  //    later date fails at runtime startup, not at config validation:
+  //      `This Worker requires compatibility date "2026-08-21", but the newest
+  //       date supported by this server binary is "2026-08-18".`
+  //    Raise this only together with the wrangler pin, and only after
+  //    `npm -w @deadhead/server test` passes.
+  "compatibility_date": "2026-08-18",
+
+  "observability": { "enabled": true },
+
+  // Durable Object class lifecycle, declared with the **`exports` map**.
+  //
+  // `exports` and the legacy `migrations` array are mutually exclusive — the
+  // installed wrangler's own `config-schema.json` says so — and a config
+  // carrying both is rejected at validation. `exports` is declarative: it is
+  // compared against what is deployed, so renames and deletes are edits to this
+  // map rather than an append-only tagged history.
+  //
+  // `"storage": "sqlite"` is not a preference. It is the only backend a new
+  // namespace can be created with, and the only one the Workers Free plan has
+  // ever supported.
+  "exports": {
+    "LobbyRoom": { "type": "durable-object", "storage": "sqlite" },
+    "MatchRoom": { "type": "durable-object", "storage": "sqlite" },
+    "Matchmaker": { "type": "durable-object", "storage": "sqlite" },
+  },
+
+  "durable_objects": {
+    "bindings": [
+      { "name": "LOBBY", "class_name": "LobbyRoom" },
+      { "name": "MATCH", "class_name": "MatchRoom" },
+      { "name": "MATCHMAKER", "class_name": "Matchmaker" },
+    ],
+  },
+
+  // `database_id` is a placeholder until the D1 database is created against the
+  // real account (`wrangler d1 create deadhead`). Local dev and
+  // `wrangler d1 migrations apply --local` never read it — they use the local
+  // SQLite file under `.wrangler/` — and `deploy --dry-run` does not resolve
+  // remote resources either. A *real* deploy will fail until it is filled in,
+  // which is the correct failure: loud, and at the only moment it matters.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "deadhead",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations",
+    },
+  ],
+
+  // Same placeholder story: `wrangler kv namespace create RATE_LIMIT`.
+  "kv_namespaces": [{ "binding": "RATE_LIMIT", "id": "0000000000000000000000000000000000" }],
+}

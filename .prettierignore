@@ -18,3 +18,8 @@ CLAUDE.md
 # TASKS.md on never editing a golden to make a test pass.
 **/test/fixtures/
 **/test/golden/
+
+# Generated from packages/server/wrangler.jsonc by `wrangler types`, and kept
+# honest by `npm run types:check` in the gate. Formatting it would make every
+# regeneration a diff against the formatter rather than against the config.
+packages/server/src/worker-configuration.d.ts

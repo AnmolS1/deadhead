@@ -1,12 +1,16 @@
 /**
- * @deadhead/server — the `ponderance-play` Worker.
+ * `@deadhead/server` — the `ponderance-play` Worker.
  *
- * Scaffold only (D-01). The Worker entry, Durable Objects and D1 bindings
- * arrive in B-01. It has no public route of its own; the site reaches it
- * through the `PLAY` service binding.
+ * This file is the **package** entry (what other workspaces import). The
+ * **Worker** entry is `worker.ts`, which is what `wrangler.jsonc` points `main`
+ * at. Keeping them apart means a test or tool can import a pure helper without
+ * dragging in the `cloudflare:workers` module graph.
  */
 import { SIM_VERSION } from '@deadhead/sim';
 
-export const SERVER_VERSION = 0;
+export { SERVER_VERSION } from './version.js';
+export { API_PREFIX, routePath } from './routes.js';
+export { json, fail, notImplemented, type ApiError } from './http.js';
+export { health, type HealthReport } from './health.js';
 
 export { SIM_VERSION };
