@@ -43,9 +43,12 @@
 
   // Durable Object class lifecycle, declared with the **`exports` map**.
   //
-  // `exports` and the legacy `migrations` array are mutually exclusive — the
-  // installed wrangler's own `config-schema.json` says so — and a config
-  // carrying both is rejected at validation. `exports` is declarative: it is
+  // `exports` and the legacy `migrations` array are mutually exclusive. Not
+  // just documented — **measured**: adding a `migrations` array alongside this
+  // map makes wrangler refuse the config outright, with
+  //   "`migrations` and `exports` are mutually exclusive. Choose one or the
+  //    other to declare your Durable Object lifecycle, but not both."
+  // `exports` is declarative: it is
   // compared against what is deployed, so renames and deletes are edits to this
   // map rather than an append-only tagged history.
   //
