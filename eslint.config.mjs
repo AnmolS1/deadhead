@@ -17,6 +17,12 @@ export default tseslint.config(
       '_to_ignore/**',
       '.remember/**',
       'docs/**',
+      // Generated from packages/server/wrangler.jsonc by `wrangler types`, and
+      // kept honest by `npm run types:check`. It carries its own
+      // `/* eslint-disable */` plus inline directives that this config has no
+      // rules for, which surface as "unused eslint-disable directive"
+      // warnings — noise from a file nobody hand-edits.
+      'packages/server/src/worker-configuration.d.ts',
     ],
   },
 
