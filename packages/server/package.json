@@ -6,10 +6,20 @@
   "description": "The ponderance-play Worker: Durable Objects, D1, auth, replay validator.",
   "scripts": {
     "typecheck": "tsc -p tsconfig.test.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "types": "wrangler types ./src/worker-configuration.d.ts",
+    "types:check": "wrangler types ./src/worker-configuration.d.ts --check",
+    "dev": "wrangler dev",
+    "deploy:dry": "wrangler deploy --dry-run --outdir dist-app",
+    "deploy": "wrangler deploy"
   },
   "dependencies": {
     "@deadhead/proto": "*",
     "@deadhead/sim": "*"
-  }
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.21.3",
+    "wrangler": "4.123.0"
+  },
+  "//wrangler": "Pinned exact, to the version @cloudflare/vitest-pool-workers 0.21.3 depends on. A caret range resolves to a newer wrangler and installs a second copy, so the wrangler that parses wrangler.jsonc under vitest would not be the one deploy:dry validates it with — which is the only thing that makes the test suite evidence about the real deploy."
 }
