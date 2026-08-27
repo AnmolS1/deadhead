@@ -19,11 +19,13 @@
 import { packCity, type CityJson } from '@deadhead/proto';
 import {
   Car,
+  CarFlags,
   FX_ONE,
   createWorld,
   emptyCity,
   fxFromInt,
   getCar,
+  isCarrying,
   prepareCity,
   setCar,
   step,
@@ -31,6 +33,7 @@ import {
   type World,
 } from '@deadhead/sim';
 
+import { AudioEngine } from './audio/index.js';
 import { getContext, resizeCanvas, type Viewport } from './canvas.js';
 import {
   InputBuffer,
@@ -141,6 +144,40 @@ function start(canvas: HTMLCanvasElement, cityJson: CityJson | null): void {
   attachKeyboard(window, session.input, loadBindings(safeLocalStorage()));
   attachTouch(canvas, session.input, () => ({ width: viewport.width, height: viewport.height }));
 
+  // `C-07`. **The context must be created inside a real user gesture.** A
+  // context built here, at start-up, is left `suspended` by autoplay policy and
+  // never produces a sound — and nothing throws and nothing logs, so the only
+  // symptom is silence. Hence the listeners below rather than a call here.
+  const audio = new AudioEngine(safeLocalStorage());
+  const wake = (): void => audio.start();
+  for (const type of ['keydown', 'pointerdown', 'touchstart'] as const) {
+    // Not `{ once: true }`: a context can be suspended again when the tab is
+    // hidden or audio focus is lost, and resuming is gesture-gated too. Every
+    // gesture is a chance to recover, and `start()` is idempotent.
+    window.addEventListener(type, wake, { passive: true });
+  }
+
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'm' || event.key === 'M') audio.toggleMute();
+  });
+
+  // Dev affordance, not a feature. Web Audio cannot be tested in node or
+  // workerd, so the ONLY way to check the mix in the thing that actually makes
+  // sound is to read it out of the page. `C-08` tunes against this and `C-06`'s
+  // overlay wants the same numbers.
+  //
+  // Gated on the host rather than `import.meta.env.DEV`, which needs Vite's
+  // client types — and `HANDOFF.md` is explicit that this repo carries no
+  // ambient type packages it can avoid. A hostname check needs none and is
+  // honest about what it does.
+  if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+    (window as unknown as { deadhead?: unknown }).deadhead = {
+      audio,
+      mix: () => audio.lastMix,
+      world: () => session.current,
+    };
+  }
+
   const inputs = [0];
 
   const frame = (timestampMs: number): void => {
@@ -163,6 +200,19 @@ function start(canvas: HTMLCanvasElement, cityJson: CityJson | null): void {
       session.previous = session.current;
       session.current = step(session.current, inputs);
     }
+
+    // Audio reads the SAME state the renderer draws, once a frame. Driving it
+    // from inside the tick loop would push several updates per frame during
+    // catch-up and ramp the mix against stale wall-clock time; the mix is a
+    // presentation concern, like `alpha`, not a simulation one.
+    const vx = getCar(session.current, 0, Car.VelocityX) / FX_ONE;
+    const vy = getCar(session.current, 0, Car.VelocityY) / FX_ONE;
+    audio.update({
+      carrying: isCarrying(session.current, 0),
+      deadheadTicks: getCar(session.current, 0, Car.DeadheadTicks),
+      speedPerTick: Math.hypot(vx, vy),
+      eliminated: (getCar(session.current, 0, Car.Flags) & CarFlags.Eliminated) !== 0,
+    });
 
     render(context, viewport, session, alpha);
     requestAnimationFrame(frame);
