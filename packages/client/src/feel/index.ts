@@ -7,6 +7,7 @@
  */
 export {
   FeelTuning,
+  clockLabel,
   ease,
   elapsedEmptyTicks,
   feelFor,

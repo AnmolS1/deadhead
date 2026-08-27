@@ -171,6 +171,33 @@ export function foldedAreaFraction(insets: FoldInsets): number {
   return clamp01(w) * clamp01(h);
 }
 
+/**
+ * The deadhead clock as `M:SS`.
+ *
+ * **Added 2026-08-27 after Anmol's first playtest.** `D-04` made the fold the
+ * clock and §7.5 says "a numeric clock stays available somewhere, but the fold
+ * is what a player actually reads" — so this exercises a permission the design
+ * already granted rather than reversing it. What the playtest found is that the
+ * fold conveys *urgency* without conveying *magnitude*: a crease every 15–30
+ * seconds cannot tell you whether you have twenty seconds left or ninety, and
+ * pressure you cannot size reads as stress rather than as a deadline.
+ *
+ * This is deliberately the ONLY number on screen. `G-02` owns the real HUD
+ * (cash, deliveries, fare state) and it is behind `G-01`; adding a second value
+ * here would mean designing `G-02` inside `C-08`, and the feel pass would then
+ * be testing a HUD.
+ *
+ * Rounds UP, so the last visible second is `0:01` and `0:00` means the run is
+ * genuinely over. A clock that shows `0:00` while still driving reads as broken.
+ */
+export function clockLabel(deadheadTicks: number): string {
+  const ticks = deadheadTicks > 0 ? deadheadTicks : 0;
+  const seconds = Math.ceil(ticks / TICK_HZ);
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return `${minutes}:${rest < 10 ? '0' : ''}${rest}`;
+}
+
 /** Everything the feel renderer needs for one frame. */
 export interface FeelState {
   readonly carrying: boolean;
@@ -180,6 +207,17 @@ export interface FeelState {
 
 export interface Feel {
   readonly insets: FoldInsets;
+  /** The deadhead clock, `M:SS`. See {@link clockLabel}. */
+  readonly clock: string;
+  /**
+   * True while the clock is frozen because a passenger is aboard.
+   *
+   * The renderer dims it. **A visibly stopped number is the least ambiguous
+   * statement of `C-08`'s pass condition available** — "the timer stops when
+   * someone's in the car" is exactly what a frozen clock says, and it says it
+   * without a word of instruction.
+   */
+  readonly clockHeld: boolean;
   /** Alpha of the accent wash, in [0, 1]. */
   readonly wash: number;
   /** True once the run is over — the renderer draws the terminal state. */
@@ -198,6 +236,8 @@ export function feelFor(state: FeelState): Feel {
     insets: foldInsets(state.deadheadTicks),
     wash: state.carrying ? FeelTuning.carryingWash : FeelTuning.emptyWash,
     ended: state.eliminated,
+    clock: clockLabel(state.deadheadTicks),
+    clockHeld: state.carrying,
   };
 }
 

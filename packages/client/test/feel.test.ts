@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   FeelTuning,
+  clockLabel,
   ease,
   elapsedEmptyTicks,
   feelFor,
@@ -157,5 +158,39 @@ describe('ease', () => {
   it('snaps when handed a nonsense timestep rather than producing NaN', () => {
     expect(ease(0, 1, 0.5, Number.NaN)).toBe(1);
     expect(ease(0, 1, 0, 0.016)).toBe(1);
+  });
+});
+
+describe('the numeric clock', () => {
+  it('formats as M:SS', () => {
+    expect(clockLabel(ClockTuning.startingDeadheadTicks)).toBe('3:00');
+    expect(clockLabel(90 * TICK_HZ)).toBe('1:30');
+    expect(clockLabel(9 * TICK_HZ)).toBe('0:09');
+  });
+
+  it('rounds UP, so the last visible second is 0:01', () => {
+    // A clock showing 0:00 while the cab is still driving reads as broken. The
+    // run is over when the bank is empty, and only then.
+    expect(clockLabel(1)).toBe('0:01');
+    expect(clockLabel(0)).toBe('0:00');
+  });
+
+  it('never goes negative', () => {
+    expect(clockLabel(-500)).toBe('0:00');
+  });
+
+  it('is held while carrying, and says so', () => {
+    // THE reinforcement. `C-08` passes when a player can articulate "the timer
+    // stops when someone's in the car" — and a visibly frozen number is the
+    // least ambiguous way that sentence can be shown rather than said.
+    expect(feelFor({ ...START, carrying: true }).clockHeld).toBe(true);
+    expect(feelFor(START).clockHeld).toBe(false);
+  });
+
+  it('reads the same number whether held or not — only the emphasis changes', () => {
+    const ticks = 42 * TICK_HZ;
+    const empty = feelFor({ carrying: false, deadheadTicks: ticks, eliminated: false });
+    const carrying = feelFor({ carrying: true, deadheadTicks: ticks, eliminated: false });
+    expect(carrying.clock).toBe(empty.clock);
   });
 });

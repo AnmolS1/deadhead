@@ -24,9 +24,20 @@ import { type Feel, FeelTuning, ease } from '../feel/policy.js';
 import { Ink } from './palette.js';
 import { type PaperContext } from './paper.js';
 
-/** The subset of a 2D context this pass needs, beyond `PaperContext`. */
+/**
+ * The subset of a 2D context this pass needs, beyond `PaperContext`.
+ *
+ * `fillText`/`font` are widened HERE rather than on `PaperContext`, because
+ * `PaperContext` describes the *art* — and `paper.ts` is explicit that the art
+ * has rules (no gradients, no patterns). A clock is printed on top of the
+ * picture, not part of it. Nothing that draws the world gains text by this.
+ */
 export interface FeelContext extends PaperContext {
   globalAlpha: number;
+  font: string;
+  textAlign: CanvasTextAlign;
+  textBaseline: CanvasTextBaseline;
+  fillText(text: string, x: number, y: number): void;
 }
 
 /** Viewport, in device pixels. */
@@ -75,6 +86,12 @@ export function renderFeel(
   // and compared the two states side by side.
   drawFold(context, viewport, feel);
   drawWash(context, viewport, memory.wash);
+
+  // **After the wash, deliberately.** The fold is the sheet and takes the tint;
+  // the clock is printed on top of the picture and must stay legible, because
+  // an unreadable clock is the thing this element exists to fix.
+  drawClock(context, viewport, feel);
+
   if (feel.ended) drawEnded(context, viewport);
 
   context.restore();
@@ -171,6 +188,46 @@ function drawCorners(context: FeelContext, viewport: FeelViewport, feel: Feel): 
     context.closePath();
     context.fill();
   }
+}
+
+/**
+ * The deadhead clock.
+ *
+ * Added after the first playtest: the fold conveys urgency without conveying
+ * magnitude, and pressure you cannot size reads as stress rather than as a
+ * deadline. §7.5 always permitted this — "a numeric clock stays available
+ * somewhere, but the fold is what a player actually reads" — so it is sized and
+ * placed to stay subordinate to the fold rather than to compete with it.
+ *
+ * **It rides the fold inward.** Positioned relative to the folded insets, so the
+ * closing field carries it rather than occluding it — and so the two clocks
+ * (the fold and the number) visibly belong to each other.
+ *
+ * **It dims while a passenger is aboard**, because the bank is frozen then. A
+ * visibly stopped number is the least ambiguous statement of `C-08`'s pass
+ * condition there is: "the timer stops when someone's in the car" is precisely
+ * what a held clock says, without a word of instruction.
+ */
+function drawClock(context: FeelContext, viewport: FeelViewport, feel: Feel): void {
+  const { width: w, height: h } = viewport;
+  const size = Math.max(11, Math.round(h * 0.022));
+
+  context.save();
+  // A system stack: `no-thirdparty.sh` forbids a CDN font, and nothing is
+  // self-hosted for the canvas yet. `P-01` can align this with the site's
+  // `var(--font-*)` when the game gets a real page.
+  context.font = `${size}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  context.textAlign = 'right';
+  context.textBaseline = 'top';
+
+  // Held = frozen bank = passenger aboard. Dimmer, not hidden: hiding it would
+  // remove the very comparison that teaches the mechanic.
+  context.globalAlpha = feel.clockHeld ? 0.34 : 0.72;
+  context.fillStyle = Ink.graphite;
+
+  const pad = Math.round(size * 0.9);
+  context.fillText(feel.clock, w - feel.insets.right * w - pad, feel.insets.top * h + pad);
+  context.restore();
 }
 
 /**

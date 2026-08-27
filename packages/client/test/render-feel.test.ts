@@ -54,6 +54,16 @@ function recorder(): { context: FeelContext; calls: Call[] } {
     lineTo() {},
     stroke() {},
     setLineDash() {},
+    font: '',
+    textAlign: 'left' as CanvasTextAlign,
+    textBaseline: 'alphabetic' as CanvasTextBaseline,
+    fillText(text: string) {
+      calls.push({
+        op: `fillText:${text}`,
+        style: String(state.fillStyle),
+        alpha: state.globalAlpha,
+      });
+    },
     fill() {
       calls.push({ op: 'fill', style: String(state.fillStyle), alpha: state.globalAlpha });
     },
@@ -88,12 +98,40 @@ describe('draw order', () => {
     expect(firstFold).toBeLessThan(wash);
   });
 
-  it('draws nothing at all at the very start of a run', () => {
+  it('draws only the clock at the very start of a run', () => {
+    // No fold yet and no wash while carrying — but the clock is always present,
+    // because a clock that appears partway through a run is a clock nobody
+    // learns to look at.
     const { context, calls } = recorder();
     const memory = { wash: 0 };
     const fresh = feelFor({ carrying: true, deadheadTicks: 5400, eliminated: false });
     renderFeel(context, VIEWPORT, fresh, memory, 1);
-    expect(calls).toStrictEqual([]);
+    expect(calls.map((c) => c.op)).toStrictEqual(['fillText:3:00']);
+  });
+
+  it('draws the clock AFTER the wash, so it stays legible', () => {
+    // The fold is the sheet and takes the tint; the clock is printed on top.
+    // An unreadable clock is the thing this element exists to fix.
+    const { context, calls } = recorder();
+    renderFeel(context, VIEWPORT, MID_RUN, newFeelMemory(), 1);
+    const wash = calls.findIndex((c) => c.style === Ink.crane);
+    const clock = calls.findIndex((c) => c.op.startsWith('fillText:'));
+    expect(wash).toBeGreaterThanOrEqual(0);
+    expect(clock).toBeGreaterThan(wash);
+  });
+
+  it('dims the clock while a passenger is aboard', () => {
+    const held = feelFor({ carrying: true, deadheadTicks: 600, eliminated: false });
+    const free = feelFor({ carrying: false, deadheadTicks: 600, eliminated: false });
+    const alphaOf = (feel: typeof held) => {
+      const { context, calls } = recorder();
+      renderFeel(context, VIEWPORT, feel, { wash: 0 }, 1);
+      return calls.find((c) => c.op.startsWith('fillText:'))?.alpha ?? -1;
+    };
+    // A frozen number IS the pass condition, shown rather than said — so it is
+    // dimmed, never hidden. Hiding it removes the comparison that teaches it.
+    expect(alphaOf(held)).toBeGreaterThan(0);
+    expect(alphaOf(held)).toBeLessThan(alphaOf(free));
   });
 });
 
@@ -126,14 +164,21 @@ describe('the terminal state', () => {
     const ended = feelFor({ carrying: false, deadheadTicks: 0, eliminated: true });
     renderFeel(context, VIEWPORT, ended, newFeelMemory(), 1);
 
-    expect(calls.some((c) => c.style === Ink.graphite)).toBe(true);
+    expect(calls.some((c) => c.op === 'fillRect' && c.style === Ink.graphite)).toBe(true);
     const last = calls[calls.length - 1];
+    expect(last?.op).toBe('fillRect');
     expect(last?.style).toBe(Ink.graphite);
   });
 
   it('does not paint it while the cab is still driving', () => {
+    // Checks for the graphite BAR (a fillRect), not for graphite generally —
+    // the clock is graphite too, and a test that cannot tell them apart would
+    // pass whether or not the terminal state was drawn.
     const { context, calls } = recorder();
     renderFeel(context, VIEWPORT, MID_RUN, newFeelMemory(), 1);
-    expect(calls.some((c) => c.style === Ink.graphite)).toBe(false);
+    expect(calls.some((c) => c.op === 'fillRect' && c.style === Ink.graphite)).toBe(false);
+    // ...and the clock IS present, so the assertion above is discriminating
+    // rather than passing because nothing was drawn at all.
+    expect(calls.some((c) => c.op.startsWith('fillText:'))).toBe(true);
   });
 });
