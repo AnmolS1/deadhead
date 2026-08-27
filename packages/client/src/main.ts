@@ -20,9 +20,12 @@ import { packCity, type CityJson } from '@deadhead/proto';
 import {
   Car,
   CarFlags,
+  ClockTuning,
   FX_ONE,
+  beginFare,
   createWorld,
   emptyCity,
+  endFare,
   fxFromInt,
   getCar,
   isCarrying,
@@ -34,6 +37,7 @@ import {
 } from '@deadhead/sim';
 
 import { AudioEngine } from './audio/index.js';
+import { feelFor } from './feel/index.js';
 import { getContext, resizeCanvas, type Viewport } from './canvas.js';
 import {
   InputBuffer,
@@ -46,6 +50,7 @@ import { FixedTimestepLoop } from './loop.js';
 import { GroundCache, suggestedBudgetBytes } from './render/chunks.js';
 import { paintCity } from './render/city.js';
 import { Ink } from './render/palette.js';
+import { newFeelMemory, renderFeel } from './render/feel.js';
 import { renderScene, type FrameContext } from './render/scene.js';
 import { type ViewportState } from './render/viewport.js';
 
@@ -175,10 +180,46 @@ function start(canvas: HTMLCanvasElement, cityJson: CityJson | null): void {
       audio,
       mix: () => audio.lastMix,
       world: () => session.current,
+      /**
+       * Set the deadhead bank to a fraction of full, so the fold can be seen at
+       * any point in a run without waiting three minutes for it. `C-08` is
+       * tuned against this — a feel pass that can only be observed in real time
+       * is a feel pass nobody iterates on.
+       */
+      drain: (fraction: number) => {
+        setCar(
+          session.current,
+          0,
+          Car.DeadheadTicks,
+          Math.round(ClockTuning.startingDeadheadTicks * fraction),
+        );
+      },
+      /**
+       * Force the carrying state, for looking at the empty-vs-carrying contrast
+       * without hunting a passenger down first.
+       *
+       * **This holds for ONE tick unless passenger `index` is genuinely
+       * waiting.** `stepFares` -> `resolveBails` ends any fare whose passenger
+       * has no patience left, and a passenger that was never spawned has
+       * `PatienceTicks` of zero — so a faked pickup is reverted immediately and
+       * the cab silently goes back to empty while the bank keeps draining. That
+       * cost a confusing screenshot: the world looked right, then eliminated
+       * itself half a minute later.
+       *
+       * Uses `beginFare` rather than writing `CarriedPassenger`, so the fare
+       * clock resets the way a real pickup does. Returns whether it stuck.
+       */
+      carry: (on: boolean, index = 0): boolean => {
+        if (on) beginFare(session.current, 0, index);
+        else endFare(session.current, 0, false);
+        return isCarrying(session.current, 0);
+      },
     };
   }
 
   const inputs = [0];
+  const feelMemory = newFeelMemory();
+  let lastFrameMs = 0;
 
   const frame = (timestampMs: number): void => {
     const resized = resizeCanvas(canvas);
@@ -215,6 +256,24 @@ function start(canvas: HTMLCanvasElement, cityJson: CityJson | null): void {
     });
 
     render(context, viewport, session, alpha);
+
+    // `C-08`, drawn over the finished scene in screen space. The dt here is
+    // real wall time and that is correct — this is presentation easing, and the
+    // sim never sees it (hard invariant #2).
+    const dtSeconds = lastFrameMs === 0 ? 0 : (timestampMs - lastFrameMs) / 1000;
+    lastFrameMs = timestampMs;
+    renderFeel(
+      context,
+      { width: viewport.width, height: viewport.height },
+      feelFor({
+        carrying: isCarrying(session.current, 0),
+        deadheadTicks: getCar(session.current, 0, Car.DeadheadTicks),
+        eliminated: (getCar(session.current, 0, Car.Flags) & CarFlags.Eliminated) !== 0,
+      }),
+      feelMemory,
+      dtSeconds,
+    );
+
     requestAnimationFrame(frame);
   };
 
