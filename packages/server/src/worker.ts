@@ -17,6 +17,7 @@ import { LobbyRoom } from './do/LobbyRoom.js';
 import { Matchmaker } from './do/Matchmaker.js';
 import { MatchRoom } from './do/MatchRoom.js';
 import { health } from './health.js';
+import { runStart } from './runs/start.js';
 import { fail } from './http.js';
 import { routePath } from './routes.js';
 
@@ -71,6 +72,13 @@ export default {
         request = new Request(url, request);
       }
       return buildAuth(env as Env & AuthSecrets).handler(request);
+    }
+
+    // `B-06`. Mints the token a run must be played under. `B-07` adds
+    // `/run/submit`, which redeems it — and takes an input log, never a score.
+    if (path === '/run/start') {
+      if (request.method !== 'POST') return fail(405, 'method_not_allowed');
+      return runStart(request, env as Env & AuthSecrets);
     }
 
     return fail(404, 'not_found', path);
