@@ -27,7 +27,10 @@ import {
   emptyCity,
   endFare,
   fxFromInt,
+  NO_PASSENGER,
+  Passenger,
   getCar,
+  getPassenger,
   isCarrying,
   prepareCity,
   setCar,
@@ -52,6 +55,7 @@ import { GroundCache, suggestedBudgetBytes } from './render/chunks.js';
 import { paintCity } from './render/city.js';
 import { Ink } from './render/palette.js';
 import { newFeelMemory, renderFeel } from './render/feel.js';
+import { renderMinimap, type MinimapEdge } from './render/minimap.js';
 import { renderScene, type FrameContext } from './render/scene.js';
 import { type ViewportState } from './render/viewport.js';
 
@@ -249,6 +253,17 @@ function start(canvas: HTMLCanvasElement, cityJson: CityJson | null): void {
 
   const inputs = [0];
   const feelMemory = newFeelMemory();
+
+  // Road segments in world units, resolved once. The city never changes during a
+  // run, so rebuilding this per frame would be pure waste.
+  const minimapEdges: MinimapEdge[] =
+    cityJson === null
+      ? []
+      : cityJson.edges.flatMap((edge) => {
+          const a = cityJson.nodes[edge.a];
+          const b = cityJson.nodes[edge.b];
+          return a === undefined || b === undefined ? [] : [{ a, b }];
+        });
   let lastFrameMs = 0;
 
   const frame = (timestampMs: number): void => {
@@ -292,22 +307,57 @@ function start(canvas: HTMLCanvasElement, cityJson: CityJson | null): void {
     // sim never sees it (hard invariant #2).
     const dtSeconds = lastFrameMs === 0 ? 0 : (timestampMs - lastFrameMs) / 1000;
     lastFrameMs = timestampMs;
+    const feel = feelFor({
+      carrying: isCarrying(session.current, 0),
+      deadheadTicks: getCar(session.current, 0, Car.DeadheadTicks),
+      eliminated: (getCar(session.current, 0, Car.Flags) & CarFlags.Eliminated) !== 0,
+    });
+
     renderFeel(
       context,
       { width: viewport.width, height: viewport.height },
-      feelFor({
-        carrying: isCarrying(session.current, 0),
-        deadheadTicks: getCar(session.current, 0, Car.DeadheadTicks),
-        eliminated: (getCar(session.current, 0, Car.Flags) & CarFlags.Eliminated) !== 0,
-      }),
+      feel,
       feelMemory,
       dtSeconds,
     );
+
+    // `W-06`. Drawn last so the fold never eats it, and positioned from the same
+    // insets so it rides the closing field instead of being occluded by it.
+    if (session.city !== null && !feel.ended) {
+      renderMinimap(
+        context as unknown as Parameters<typeof renderMinimap>[0],
+        { width: viewport.width, height: viewport.height },
+        {
+          eye: lastEye,
+          edges: minimapEdges,
+          landmarks: session.city.landmarks,
+          destination: activeDestination(session),
+          insets: feel.insets,
+        },
+      );
+    }
 
     requestAnimationFrame(frame);
   };
 
   requestAnimationFrame(frame);
+}
+
+/**
+ * The destination of the fare currently aboard, or `null` when the cab is empty.
+ *
+ * `Passenger.Destination` is an index into the city's destination list — its own
+ * comment says "`W-06` names it", and this is that. Until now **all 19
+ * destinations were drawn identically**, so a carrying player had no way to tell
+ * which was theirs: the target was not hidden, it was indistinguishable from
+ * eighteen decoys. That is what Anmol's playtest reported.
+ */
+function activeDestination(session: Session): { x: number; y: number } | null {
+  if (session.city === null) return null;
+  const passenger = getCar(session.current, 0, Car.CarriedPassenger);
+  if (passenger === NO_PASSENGER) return null;
+  const index = getPassenger(session.current, passenger, Passenger.Destination);
+  return session.city.destinations[index] ?? null;
 }
 
 /**
