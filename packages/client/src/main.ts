@@ -28,9 +28,12 @@ import {
   endFare,
   fxFromInt,
   NO_PASSENGER,
+  MAX_PLAYERS,
   Passenger,
   getCar,
   getPassenger,
+  getTick,
+  hashWorld,
   isCarrying,
   prepareCity,
   setCar,
@@ -42,6 +45,8 @@ import {
 import { AudioEngine } from './audio/index.js';
 import { feelFor } from './feel/index.js';
 import { interpolatedEye } from './camera.js';
+import { FrameTimes } from './debug/frametimes.js';
+import { drawCollisionBoxes, drawNavGraph, renderPanel, type PanelContext } from './debug/panel.js';
 import { applyPlaytestTuning } from './debug/playtest-tuning.js';
 import { getContext, resizeCanvas, type Viewport } from './canvas.js';
 import {
@@ -57,8 +62,14 @@ import { paintCity } from './render/city.js';
 import { Ink } from './render/palette.js';
 import { newFeelMemory, renderFeel } from './render/feel.js';
 import { renderMinimap, type MinimapEdge } from './render/minimap.js';
-import { renderScene, type FrameContext } from './render/scene.js';
-import { type ViewportState } from './render/viewport.js';
+import { ParticleTuning, Particles } from './render/particles.js';
+import {
+  emptyFrameStats,
+  renderScene,
+  type FrameContext,
+  type FrameStats,
+} from './render/scene.js';
+import { applyCamera, type ViewportState } from './render/viewport.js';
 
 /** Everything a running game needs. `G-01` gives this a real lifecycle. */
 interface Session {
@@ -113,7 +124,17 @@ function start(canvas: HTMLCanvasElement, cityJson: CityJson | null): void {
   };
 
   const runtime: RuntimeCity = cityJson === null ? emptyCity() : prepareCity(packCity(cityJson));
-  const world = createWorld(20260821, 1, runtime);
+
+  // `?stress` — `C-04`'s done-when, made reachable.
+  //
+  // "60 fps with 12 cars, 40 NPC vehicles and 200 particles" could not be
+  // measured because nothing produced any of the three at once: the game runs
+  // one cab, and until `particles.ts` nothing emitted a scrap. This spawns the
+  // full player count so all twelve are simulated and drawn; traffic is already
+  // 64 (above the 40 the target asks for), and the capture drives the particle
+  // pool to its cap.
+  const stress = new URLSearchParams(location.search).has('stress');
+  const world = createWorld(20260821, stress ? MAX_PLAYERS : 1, runtime);
 
   // Put the cab on a road. `G-01` owns this properly — a seeded junction,
   // biased toward the middle — but a cab left at the origin is inside a
@@ -125,6 +146,9 @@ function start(canvas: HTMLCanvasElement, cityJson: CityJson | null): void {
   }
 
   const pixelsPerUnit = scaleOverride() * viewport.pixelRatio;
+  // Held so `C-06` can report it: `CacheStats` says what is held and whether it
+  // went over, but not what the ceiling was.
+  const groundBudget = suggestedBudgetBytes(canvas.width, canvas.height);
   const session: Session = {
     current: world,
     previous: world,
@@ -137,7 +161,7 @@ function start(canvas: HTMLCanvasElement, cityJson: CityJson | null): void {
         : new GroundCache<OffscreenCanvas>({
             chunkUnits: CHUNK_UNITS,
             pixelsPerUnit,
-            budgetBytes: suggestedBudgetBytes(canvas.width, canvas.height),
+            budgetBytes: groundBudget,
             createSurface: (w, h) => new OffscreenCanvas(w, h),
             paint: (surface, bounds) => {
               const ctx = surface.getContext('2d');
@@ -183,6 +207,10 @@ function start(canvas: HTMLCanvasElement, cityJson: CityJson | null): void {
 
   window.addEventListener('keydown', (event) => {
     if (event.key === 'm' || event.key === 'M') audio.toggleMute();
+    // `C-06`'s toggle key. Backquote because it is not a driving control on any
+    // layout and never will be.
+    if (event.key === '`') showPanel = !showPanel;
+    if (event.key === 'g' || event.key === 'G') showGraph = !showGraph;
   });
 
   // Dev affordance, not a feature. Web Audio cannot be tested in node or
@@ -250,6 +278,17 @@ function start(canvas: HTMLCanvasElement, cityJson: CityJson | null): void {
        * Uses `beginFare` rather than writing `CarriedPassenger`, so the fare
        * clock resets the way a real pickup does. Returns whether it stuck.
        */
+      /** Fill the particle pool, for `C-04`'s capture. */
+      saturate: (): number => {
+        particles.emit(lastEye.x, lastEye.y, 0, particles.capacity);
+        return particles.alive;
+      },
+      frames: () => frameTimes.summary(),
+      counts: () => ({
+        particles: particles.alive,
+        cars: MAX_PLAYERS,
+        drawn: lastStats.cars.drawn + lastStats.traffic.drawn + lastStats.particles.drawn,
+      }),
       carry: (on: boolean, index = 0): boolean => {
         if (on) beginFare(session.current, 0, index);
         else endFare(session.current, 0, false);
@@ -260,6 +299,15 @@ function start(canvas: HTMLCanvasElement, cityJson: CityJson | null): void {
 
   const inputs = [0];
   const feelMemory = newFeelMemory();
+
+  // `C-06`. Off by default — a debug overlay that is on by default stops being
+  // a debug overlay and becomes part of the game nobody asked for.
+  const frameTimes = new FrameTimes();
+  const particles = new Particles();
+  let showPanel = new URLSearchParams(location.search).has('debug');
+  let showGraph = false;
+  let lastDeliveries = 0;
+  let lastStats: FrameStats = emptyFrameStats();
 
   // Road segments in world units, resolved once. The city never changes during a
   // run, so rebuilding this per frame would be pure waste.
@@ -307,13 +355,32 @@ function start(canvas: HTMLCanvasElement, cityJson: CityJson | null): void {
       eliminated: (getCar(session.current, 0, Car.Flags) & CarFlags.Eliminated) !== 0,
     });
 
-    render(context, viewport, session, alpha);
-
-    // `C-08`, drawn over the finished scene in screen space. The dt here is
-    // real wall time and that is correct — this is presentation easing, and the
-    // sim never sees it (hard invariant #2).
+    // Wall-clock delta, for everything downstream of the sim. Correct here and
+    // nowhere near `step()` — hard invariant #2.
     const dtSeconds = lastFrameMs === 0 ? 0 : (timestampMs - lastFrameMs) / 1000;
     lastFrameMs = timestampMs;
+    frameTimes.push(dtSeconds * 1000);
+
+    // Particles, BEFORE the draw so they appear on the frame they were emitted
+    // rather than one late. `lastEye` is where the camera actually was, which
+    // is where the cab is drawn — emitting at the un-interpolated sim position
+    // would trail the scraps behind the car at speed.
+    {
+      const flags = getCar(session.current, 0, Car.Flags);
+      const heading = (getCar(session.current, 0, Car.Heading) / 65536) * Math.PI * 2;
+      if ((flags & CarFlags.Drifting) !== 0) {
+        particles.emitRate(lastEye.x, lastEye.y, heading, ParticleTuning.driftRate, dtSeconds);
+      }
+      const deliveries = getCar(session.current, 0, Car.Deliveries);
+      if (deliveries > lastDeliveries) {
+        particles.emit(lastEye.x, lastEye.y, heading, ParticleTuning.deliveryBurst);
+        lastDeliveries = deliveries;
+      }
+      particles.step(dtSeconds);
+    }
+
+    lastStats = render(context, viewport, session, alpha, particles, showGraph);
+
     const feel = feelFor({
       carrying: isCarrying(session.current, 0),
       deadheadTicks: getCar(session.current, 0, Car.DeadheadTicks),
@@ -340,6 +407,40 @@ function start(canvas: HTMLCanvasElement, cityJson: CityJson | null): void {
           landmarks: session.city.landmarks,
           destination: activeDestination(session),
           insets: feel.insets,
+        },
+      );
+    }
+
+    // `C-06`, last of all and in screen space.
+    if (showPanel) {
+      renderPanel(
+        context as unknown as PanelContext,
+        { width: viewport.width, height: viewport.height },
+        {
+          frames: frameTimes.summary(),
+          histogram: frameTimes.histogram(),
+          bucketMs: 2,
+          stats: lastStats,
+          // `getTick`, not `data[0]` — that is FormatVersion, and the panel
+          // spent its first run reporting a constant 3 as the tick. A debug
+          // overlay that lies is worse than no overlay.
+          tick: getTick(session.current),
+          worldHash: hashWorld(session.current),
+          particles: { alive: particles.alive, capacity: particles.capacity },
+          // `CacheStats` reports what is HELD and whether it went over, but not
+          // the budget itself — so the budget is carried alongside rather than
+          // guessed. Reading a number the type does not expose is how a panel
+          // starts lying.
+          ground:
+            session.ground === null
+              ? null
+              : {
+                  bytes: session.ground.stats().bytes,
+                  budget: groundBudget,
+                  overBudget: session.ground.stats().overBudget,
+                },
+          // Phase 6. Null reads as "not yet" rather than as a missing section.
+          net: null,
         },
       );
     }
@@ -380,7 +481,9 @@ function render(
   viewport: Viewport,
   session: Session,
   alpha: number,
-): void {
+  particles: Particles,
+  showGraph: boolean,
+): FrameStats {
   // The camera follows the INTERPOLATED cab, not the last completed tick —
   // see `interpolatedEye`, which carries the whole explanation and the test.
   const eye = interpolatedEye(session.previous, session.current, 0, alpha);
@@ -412,14 +515,23 @@ function render(
     view,
     alpha,
     ...(session.city === null ? {} : { cityJson: session.city }),
+    particles,
   };
 
   if (ground === null) {
-    renderScene<OffscreenCanvas>(frame, base);
-    return;
+    return renderScene<OffscreenCanvas>(frame, base);
   }
 
-  renderScene<OffscreenCanvas>(frame, {
+  // Debug world-space layers, drawn under the scene so they never hide it.
+  if (showGraph && session.city !== null) {
+    context.save();
+    applyCamera(context as unknown as Parameters<typeof applyCamera>[0], view);
+    drawNavGraph(context as unknown as PanelContext, session.city.nodes, session.city.edges);
+    drawCollisionBoxes(context as unknown as PanelContext, []);
+    context.restore();
+  }
+
+  return renderScene<OffscreenCanvas>(frame, {
     ...base,
     ground: {
       cache: ground,

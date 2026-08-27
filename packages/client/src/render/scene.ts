@@ -377,6 +377,17 @@ export interface FrameInput<TSurface> {
     readonly destinations: readonly { readonly x: number; readonly y: number }[];
     readonly landmarks: readonly { readonly x: number; readonly y: number }[];
   };
+  /**
+   * The particle pool, if there is one. Omitted by `W-02`'s editor and by tests
+   * that do not care — the layer draws nothing rather than requiring a stub.
+   */
+  readonly particles?: {
+    draw(
+      context: FrameContext,
+      visible: (x: number, y: number) => boolean,
+      posed: (x: number, y: number, angle: number, paint: () => void) => void,
+    ): { considered: number; drawn: number };
+  };
   /** The ground cache. Omitted by `W-02`'s editor, which draws its own ground. */
   readonly ground?: {
     readonly cache: GroundCache<TSurface>;
@@ -555,10 +566,22 @@ function drawLayer<TSurface>(
       return;
     }
 
-    case 'particles':
-      // C-08 owns these. The slot is here so the order is settled now rather
-      // than renegotiated later.
+    case 'particles': {
+      // Presentation only — never sim state, never hashed, never sent. The
+      // pool arrives through `FrameInput` rather than being owned here, so the
+      // renderer stays a pure function of what it is handed.
+      const pool = input.particles;
+      if (pool === undefined) return;
+      const bounds = visibleBounds(view);
+      const counts = pool.draw(
+        context,
+        (x, y) => containsPoint(bounds, x, y, CullMargins.particles),
+        (x, y, angle, paint) => posed(context, x, y, angle, paint),
+      );
+      stats.particles.considered += counts.considered;
+      stats.particles.drawn += counts.drawn;
       return;
+    }
 
     case 'overlay':
       // C-05's HUD draws in screen space, after the camera is unwound. G-02
