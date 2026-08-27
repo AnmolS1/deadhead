@@ -34,7 +34,15 @@ export default defineConfig({
     cloudflareTest({
       wrangler: { configPath: './wrangler.jsonc' },
       miniflare: {
-        bindings: { TEST_MIGRATIONS: migrations },
+        bindings: {
+          TEST_MIGRATIONS: migrations,
+          // A fixed, obviously-fake signing secret. `buildAuth` REFUSES to
+          // construct without one — see the note there — so the auth suite
+          // cannot run at all if this is absent, which is the point. It is not
+          // a secret in any real sense and must never resemble the deployed
+          // one; the real value is set with `wrangler secret put`.
+          BETTER_AUTH_SECRET: 'test-secret-not-used-anywhere-real-0000000000',
+        },
       },
     }),
   ],

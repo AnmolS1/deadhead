@@ -80,7 +80,16 @@ describe('migrations', () => {
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY name",
     ).all<{ name: string }>();
 
-    const names = results.map((row) => row.name).filter((name) => name !== 'd1_migrations');
+    // The two schemas are asserted SEPARATELY on purpose. Folding Better Auth's
+    // four tables into this list would mean a future Better Auth upgrade that
+    // adds a table turns this test red with nothing wrong — and, worse, that
+    // the obvious fix (paste the new name in) would quietly also accept a
+    // *game* table appearing by accident. Auth tables have their own test.
+    const AUTH_TABLES = ['account', 'session', 'user', 'verification'];
+    const names = results
+      .map((row) => row.name)
+      .filter((name) => name !== 'd1_migrations' && !AUTH_TABLES.includes(name));
+
     expect(names).toStrictEqual([
       'daily',
       'friends',
@@ -93,11 +102,39 @@ describe('migrations', () => {
     ]);
   });
 
-  it('does not create the auth tables — Better Auth generates those in B-03', async () => {
+  it('leaves the auth tables to Better Auth — 0002, and the singular names', async () => {
+    // This test used to assert the auth tables were ABSENT, because `B-03` had
+    // not run. It is inverted here deliberately rather than discovered as a
+    // failure: `0002_auth.sql` creates them, and the reason the absence
+    // mattered still holds — the game schema (`0001`) must not define them,
+    // because Better Auth derives its own schema from the live config.
+    //
+    // The NAMES are the assertion worth keeping. `TASKS.md`'s brief called them
+    // `users` and `sessions` and omitted `account` and `verification`
+    // altogether. Better Auth uses the singular, and all four.
     const { results } = await env.DB.prepare(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('user', 'users', 'session', 'sessions', 'account', 'verification')",
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('user', 'users', 'session', 'sessions', 'account', 'accounts', 'verification') ORDER BY name",
     ).all<{ name: string }>();
-    expect(results).toStrictEqual([]);
+
+    expect(results.map((r) => r.name)).toStrictEqual([
+      'account',
+      'session',
+      'user',
+      'verification',
+    ]);
+  });
+
+  it('keeps the auth tables out of 0001, so the two schemas cannot fuse', async () => {
+    // Reads the migration SQL itself, not the resulting database. `0001` must
+    // stay free of auth tables even now that they exist, or a future `d1
+    // migrations apply` on a fresh database creates them twice.
+    const first = env.TEST_MIGRATIONS.find((m) => m.name === '0001_game_schema.sql');
+    expect(first).toBeDefined();
+    const sql = (first?.queries ?? []).join('\n').toLowerCase();
+
+    for (const table of ['"user"', '"session"', '"account"', '"verification"']) {
+      expect(sql).not.toContain(`create table ${table}`);
+    }
   });
 
   it('rolls forward on an already-migrated database', async () => {
@@ -108,7 +145,7 @@ describe('migrations', () => {
     const { results } = await env.DB.prepare('SELECT name FROM d1_migrations ORDER BY id').all<{
       name: string;
     }>();
-    expect(results.map((row) => row.name)).toStrictEqual(['0001_game_schema.sql']);
+    expect(results.map((row) => row.name)).toStrictEqual(['0001_game_schema.sql', '0002_auth.sql']);
   });
 
   it('makes every table STRICT, so a typo cannot become data', async () => {

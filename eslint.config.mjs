@@ -57,9 +57,16 @@ export default tseslint.config(
     languageOptions: { globals: globals.browser },
   },
 
-  // Node/Worker-side packages.
+  // Node/Worker-side packages. The `.mjs` glob is for build-time scripts that
+  // are NOT part of the Worker bundle — `scripts/gen-auth-schema.mjs` runs in
+  // Node and legitimately uses `process` and `console`, which the Worker code
+  // beside it must not.
   {
-    files: ['packages/server/**/*.ts', 'tools/loadtest/**/*.ts'],
+    files: [
+      'packages/server/**/*.ts',
+      'packages/server/scripts/**/*.mjs',
+      'tools/loadtest/**/*.ts',
+    ],
     languageOptions: { globals: globals.node },
   },
 

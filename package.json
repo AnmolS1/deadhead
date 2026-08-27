@@ -24,7 +24,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "npm run test --workspaces --if-present",
-    "check:all": "npm run check:lockfile && npm run types:check && npm run check:worker && npm run format:check && npm run lint && npm run typecheck && npm run lint:sim-purity && npm run test && npm run test:workerd",
+    "check:all": "npm run check:lockfile && npm run types:check && npm run auth:schema:check && npm run check:worker && npm run format:check && npm run lint && npm run typecheck && npm run lint:sim-purity && npm run test && npm run test:workerd",
     "lint:sim-purity": "tsc --build && bash scripts/validate/sim-purity.sh",
     "test:workerd": "npm run test:workerd --workspaces --if-present",
     "types:check": "npm run types:check --workspaces --if-present",
@@ -32,7 +32,9 @@
     "simrun": "npm run build --silent && node tools/simrun/dist/cli.js",
     "goldens": "npm run build --silent && node tools/simrun/dist/generate-goldens.js",
     "check:lockfile": "bash scripts/validate/lockfile.sh",
-    "city:01": "npm run build --silent && node tools/cityedit/dist/cities/generate.js"
+    "city:01": "npm run build --silent && node tools/cityedit/dist/cities/generate.js",
+    "auth:schema:check": "npm run build --silent && npm run auth:schema:check --workspaces --if-present",
+    "auth:schema": "npm run build --silent && npm run auth:schema --workspaces --if-present"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

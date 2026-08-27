@@ -12,6 +12,7 @@
  * class that is only exported from `index.ts` is invisible to it and the deploy
  * fails at validation.
  */
+import { AUTH_BASE_PATH, type AuthSecrets, buildAuth } from './auth/index.js';
 import { LobbyRoom } from './do/LobbyRoom.js';
 import { Matchmaker } from './do/Matchmaker.js';
 import { MatchRoom } from './do/MatchRoom.js';
@@ -22,7 +23,7 @@ import { routePath } from './routes.js';
 export { LobbyRoom, MatchRoom, Matchmaker };
 
 export default {
-  fetch(request, env) {
+  fetch(request: Request, env: Env) {
     const path = routePath(request.url);
 
     if (path === '/health') {
@@ -47,6 +48,29 @@ export default {
         return fail(426, 'upgrade_required');
       }
       return env.LOBBY.get(env.LOBBY.idFromName('b04-echo')).fetch(request);
+    }
+
+    // Better Auth owns everything under `/auth`. `B-03`.
+    //
+    // **The URL is canonicalised UP, not stripped down.** Better Auth matches
+    // against the full URL path, so it needs exactly one shape — but requests
+    // arrive in two: `/play/api/auth/...` through the site, and `/auth/...`
+    // against a bare `wrangler dev` or a test. `AUTH_BASE_PATH` is the proxied
+    // spelling, so the bare form is rewritten to match it rather than the other
+    // way round; that keeps the production URL the canonical one and leaves
+    // OAuth callback URLs (which are absolute, and registered with GitHub)
+    // identical in both.
+    //
+    // Rebuilding the Request is safe HERE and nowhere near `/ws`: this path
+    // carries no `Upgrade` header, and `new Request(url, request)` preserves
+    // method, headers — cookies included — and body.
+    if (path === '/auth' || path.startsWith('/auth/')) {
+      const url = new URL(request.url);
+      if (url.pathname !== `${AUTH_BASE_PATH}${path.slice('/auth'.length)}`) {
+        url.pathname = `${AUTH_BASE_PATH}${path.slice('/auth'.length)}`;
+        request = new Request(url, request);
+      }
+      return buildAuth(env as Env & AuthSecrets).handler(request);
     }
 
     return fail(404, 'not_found', path);

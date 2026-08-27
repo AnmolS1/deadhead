@@ -13,15 +13,19 @@
     "db:migrate:local": "wrangler d1 migrations apply deadhead --local",
     "db:migrate": "wrangler d1 migrations apply deadhead --remote",
     "deploy:dry": "wrangler deploy --dry-run --outdir dist-app",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "auth:schema": "node scripts/gen-auth-schema.mjs",
+    "auth:schema:check": "node scripts/gen-auth-schema.mjs --check"
   },
   "dependencies": {
     "@deadhead/proto": "*",
-    "@deadhead/sim": "*"
+    "@deadhead/sim": "*",
+    "better-auth": "^1.7.2"
   },
   "devDependencies": {
+    "@better-auth/cli": "^1.4.21",
     "@cloudflare/vitest-pool-workers": "^0.21.3",
     "wrangler": "4.123.0"
   },
-  "//wrangler": "Pinned exact, to the version @cloudflare/vitest-pool-workers 0.21.3 depends on. A caret range resolves to a newer wrangler and installs a second copy, so the wrangler that parses wrangler.jsonc under vitest would not be the one deploy:dry validates it with — which is the only thing that makes the test suite evidence about the real deploy."
+  "//wrangler": "Pinned exact, to the version @cloudflare/vitest-pool-workers 0.21.3 depends on. A caret range resolves to a newer wrangler and installs a second copy, so the wrangler that parses wrangler.jsonc under vitest would not be the one deploy:dry validates it with \u2014 which is the only thing that makes the test suite evidence about the real deploy."
 }
