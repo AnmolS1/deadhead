@@ -1,0 +1,24 @@
+# Playtest preview headers.
+#
+# **This is the site's PRODUCTION CSP, copied verbatim on purpose.** The preview
+# Worker exists to put the game in front of playtesters, and serving it under a
+# looser policy than ponderance.dev would mean the first time the real policy is
+# exercised is the day the game ships — which is exactly what `C-07`'s done-when
+# ("audio plays on ponderance.dev with the production CSP, zero console
+# violations") was written to prevent.
+#
+# Keep this in lockstep with ponderance/public/_headers. If they drift, this
+# stops being evidence about anything.
+/*
+  Content-Security-Policy: default-src 'none'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'; upgrade-insecure-requests; frame-src https://challenges.cloudflare.com
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Resource-Policy: same-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+
+# The playtest build is meant to change under the testers' feet as it is tuned.
+/
+  Cache-Control: no-store
