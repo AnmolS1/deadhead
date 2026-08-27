@@ -69,17 +69,22 @@
     ],
   },
 
-  // `database_id` is a placeholder until the D1 database is created against the
-  // real account (`wrangler d1 create deadhead`). Local dev and
-  // `wrangler d1 migrations apply --local` never read it — they use the local
-  // SQLite file under `.wrangler/` — and `deploy --dry-run` does not resolve
-  // remote resources either. A *real* deploy will fail until it is filled in,
-  // which is the correct failure: loud, and at the only moment it matters.
+  // Real database, created 2026-08-27. **Primary region WNAM, deliberately.**
+  // `wrangler d1 create` with no --location picked APAC, which would put every
+  // leaderboard write and every replay validation a Pacific crossing away from
+  // both the author and the audience. D1's primary location is IMMUTABLE after
+  // creation, so the only free moment to fix it is before the first table
+  // exists. It was fixed there. Every other database in this account is WNAM;
+  // if a future one disagrees, it was created without the flag.
+  //
+  // Local dev and `migrations apply --local` never read `database_id` — they
+  // use the SQLite file under `.wrangler/` — so a wrong id here stays invisible
+  // until a real deploy or a `--remote` migration.
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "deadhead",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "d9ff8aac-1fc0-4014-8d38-e9702c8c3cff",
       "migrations_dir": "migrations",
     },
   ],
