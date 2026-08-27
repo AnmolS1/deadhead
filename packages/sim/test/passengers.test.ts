@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { emptyCityJson, packCity, type CityJson } from '@deadhead/proto';
 
 import { prepareCity, type RuntimeCity } from '../src/city.js';
+import { FareTuning } from '../src/fare.js';
 import { TICK_HZ, WORLD_MAX } from '../src/constants.js';
 import { FX_ONE } from '../src/fx.js';
 import {
@@ -458,5 +459,81 @@ describe('timing', () => {
   it('attempts a spawn on the documented interval', () => {
     expect(PassengerTuning.spawnIntervalTicks).toBe(Math.round(TICK_HZ * 1.5));
     expect(PassengerTuning.migrationPeriodTicks).toBe(180 * TICK_HZ);
+  });
+});
+
+describe('FareTuning.maxFareUnits — the fare-distance cap', () => {
+  /**
+   * A city where the cap can actually discriminate: everyone spawns at the
+   * origin, one destination is close and three are far.
+   */
+  function nearAndFarCity(): RuntimeCity {
+    const json: CityJson = {
+      ...emptyCityJson('near and far'),
+      demandAnchors: [{ x: 0, y: 0, radius: 400, phase: 0 }],
+      spawns: [{ x: 0, y: 0 }],
+      destinations: [
+        { x: 40, y: 0 }, // near
+        { x: 800, y: 0 }, // far
+        { x: 0, y: 800 }, // far
+        { x: -800, y: 0 }, // far
+      ],
+    };
+    return prepareCity(packCity(json));
+  }
+
+  /** Destinations assigned across a run, as indices. */
+  function assigned(city: RuntimeCity, ticks = 4000): number[] {
+    const world = run(createWorld(99, 1, city), ticks);
+    const out: number[] = [];
+    for (let p = 0; p < 64; p += 1) {
+      if (!isPassengerActive(world, p)) continue;
+      out.push(getPassenger(world, p, Passenger.Destination));
+    }
+    return out;
+  }
+
+  const original = FareTuning.maxFareUnits;
+  afterEach(() => {
+    (FareTuning as { maxFareUnits: number }).maxFareUnits = original;
+  });
+
+  it('is OFF by default, which is what keeps the goldens valid', () => {
+    // The whole safety property. At 0 the destination is drawn with the same
+    // single rngNextBelow call it always was, so adding this constant changed
+    // no recorded replay. If this ever fails, every golden is suspect.
+    expect(FareTuning.maxFareUnits).toBe(0);
+  });
+
+  it('reaches the far destinations when uncapped', () => {
+    const seen = new Set(assigned(nearAndFarCity()));
+    // Baseline: without a cap, distant destinations are chosen. Without this
+    // the capped test below could pass because nothing ever spawned.
+    expect(seen.size).toBeGreaterThan(1);
+  });
+
+  it('sends nobody past the cap once it is set', () => {
+    (FareTuning as { maxFareUnits: number }).maxFareUnits = 100;
+    const seen = new Set(assigned(nearAndFarCity()));
+    // Only destination 0 is within 100 units of the origin.
+    expect([...seen]).toStrictEqual([0]);
+  });
+
+  it('falls back to the full list rather than refusing to spawn', () => {
+    // A spawn stranded beyond every destination must still produce fares. A
+    // passenger who can never appear is a worse bug than a long fare.
+    (FareTuning as { maxFareUnits: number }).maxFareUnits = 5;
+    const out = assigned(nearAndFarCity());
+    expect(out.length).toBeGreaterThan(0);
+  });
+
+  it('still spends exactly one RNG draw on the destination', () => {
+    // Rejection sampling would consume an unbounded number of values and make
+    // the stream depend on luck — a determinism bug waiting for a slow day.
+    // Two runs of the same seed and cap must agree exactly.
+    (FareTuning as { maxFareUnits: number }).maxFareUnits = 100;
+    const a = assigned(nearAndFarCity());
+    const b = assigned(nearAndFarCity());
+    expect(b).toStrictEqual(a);
   });
 });

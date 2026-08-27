@@ -33,7 +33,8 @@
 import { TICK_HZ } from './constants.js';
 import type { RuntimeCity } from './city.js';
 import { fxFloorToInt } from './fx.js';
-import { rngNextBelow, rngNextU32 } from './rng.js';
+import { FareTuning } from './fare.js';
+import { rngNextBelow, rngNextU32, type RngState } from './rng.js';
 import {
   Car,
   Header,
@@ -281,6 +282,62 @@ function farFromEveryCab(world: World, slot: number): boolean {
   return true;
 }
 
+/**
+ * Choose where this passenger is going.
+ *
+ * **With `FareTuning.maxFareUnits` at 0 this is exactly the single
+ * `rngNextBelow` call it has always been** — same draw, same result, goldens
+ * untouched. The cap is opt-in and inert until tuned.
+ *
+ * When a cap is set, the destination is drawn uniformly from those within it.
+ * Uniform-within-a-radius rather than nearest-first on purpose: always sending
+ * a passenger to their closest destination would make routes deterministic from
+ * the pickup alone, which is the opposite of the routing decisions `DESIGN.md`
+ * §2.4 says the game is about.
+ *
+ * If nothing is in range — a spawn stranded in a corner — it falls back to the
+ * full list rather than refusing to spawn. A passenger who can never appear is
+ * a worse bug than a long fare.
+ */
+function pickDestination(
+  destinations: Int32Array,
+  spawnX: number,
+  spawnY: number,
+  rng: RngState,
+): number {
+  const count = destinations.length / POINT_WORDS;
+  const cap = FareTuning.maxFareUnits;
+  if (cap <= 0) return rngNextBelow(rng, count);
+
+  // Whole units, so the squared distance stays far inside int32: the city is
+  // ±2048 units, and 2 x 4096² is ~34M. Squaring 16.16 values would not.
+  const sx = fxFloorToInt(spawnX);
+  const sy = fxFloorToInt(spawnY);
+  const limit = cap * cap;
+
+  let inRange = 0;
+  for (let i = 0; i < count; i += 1) {
+    const dx = fxFloorToInt(destinations[i * POINT_WORDS] as number) - sx;
+    const dy = fxFloorToInt(destinations[i * POINT_WORDS + 1] as number) - sy;
+    if (dx * dx + dy * dy <= limit) inRange += 1;
+  }
+  if (inRange === 0) return rngNextBelow(rng, count);
+
+  // One draw, then walk to the nth in-range destination. Drawing repeatedly
+  // until one lands in range would consume an unbounded number of RNG values
+  // and make the stream depend on rejection luck — which is a determinism bug
+  // waiting for a slow day.
+  let nth = rngNextBelow(rng, inRange);
+  for (let i = 0; i < count; i += 1) {
+    const dx = fxFloorToInt(destinations[i * POINT_WORDS] as number) - sx;
+    const dy = fxFloorToInt(destinations[i * POINT_WORDS + 1] as number) - sy;
+    if (dx * dx + dy * dy > limit) continue;
+    if (nth === 0) return i;
+    nth -= 1;
+  }
+  return 0;
+}
+
 function trySpawn(world: World, city: RuntimeCity, tick: number): void {
   const spawns = city.packed.spawns;
   const destinations = city.packed.destinations;
@@ -302,7 +359,12 @@ function trySpawn(world: World, city: RuntimeCity, tick: number): void {
   if (chosen < 0) return;
 
   const base = chosen * POINT_WORDS;
-  const destination = rngNextBelow(rng, destinations.length / POINT_WORDS);
+  const destination = pickDestination(
+    destinations,
+    spawns[base] as number,
+    spawns[base + 1] as number,
+    rng,
+  );
   const rush = rngNextBelow(rng, PEAK_WEIGHT) < rushShareAt(tick);
 
   setPassenger(

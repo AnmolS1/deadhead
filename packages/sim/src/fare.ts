@@ -70,6 +70,28 @@ export const FareTuning = {
    */
   stoppedSpeed: fxFromRatio(4, 30),
 
+  /**
+   * Cap on how far a fare may be sent, in **whole world units**. `0` disables it.
+   *
+   * **Zero by default, and that default is load-bearing**: at 0 the destination
+   * is drawn with the exact same single RNG call it always was, so the goldens
+   * are untouched and this constant is inert until somebody tunes it.
+   *
+   * It exists because Anmol's second playtest found fares taking 30+ seconds.
+   * Measured across City 01's 380 spawn×destination pairs at top speed (with a
+   * 1.3x grid-detour factor): **median 25 s, 77% over 15 s, 36% over 30 s, worst
+   * 53 s.** The destination was chosen uniformly at random from all 19 with no
+   * regard to where the passenger stood, so a corner-to-corner haul was exactly
+   * as likely as a short hop.
+   *
+   * ⚠️ **A hard 15 s cap is not the right answer** and the numbers say so: it
+   * discards 77% of the pairs and leaves a *median of 4 destinations per spawn,
+   * minimum 2* — that is not tuning, it is shrinking City 01 to a fraction of
+   * itself and making routes repetitive. Something in the 500–650 range keeps
+   * variety while cutting the tail. The playtest picks it.
+   */
+  maxFareUnits: 0,
+
   /** What a `Meter` fare is worth the instant it starts, in minor units. */
   meterBase: 200,
 

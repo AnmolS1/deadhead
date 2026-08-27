@@ -19,6 +19,7 @@
  * underside, rather than as a soft radial darkening that would be the one
  * un-paper thing in the game.
  */
+import { tuningBanner } from '../debug/playtest-tuning.js';
 import { type Feel, FeelTuning, ease } from '../feel/policy.js';
 
 import { Ink } from './palette.js';
@@ -93,6 +94,13 @@ export function renderFeel(
   drawClock(context, viewport, feel);
 
   if (feel.ended) drawEnded(context, viewport);
+
+  // Last of all, over even the terminal state. A modified build must announce
+  // itself no matter what else is on screen — a tester playing at `?speed=1.4`
+  // without knowing it is worse than no test, and a tester the OPERATOR forgot
+  // to reset is worse still.
+  const banner = tuningBanner();
+  if (banner !== null) drawBanner(context, viewport, banner);
 
   context.restore();
 }
@@ -260,5 +268,25 @@ function drawEnded(context: FeelContext, viewport: FeelViewport): void {
     barWidth,
     barHeight,
   );
+  context.restore();
+}
+
+/**
+ * The "this build is not stock" banner.
+ *
+ * Deliberately in the accent and deliberately ugly. It is not chrome to be
+ * lived with — it is a warning that the numbers under this session are not the
+ * numbers in the repository, and it should be slightly annoying so nobody
+ * forgets it is on.
+ */
+function drawBanner(context: FeelContext, viewport: FeelViewport, text: string): void {
+  const size = Math.max(10, Math.round(viewport.height * 0.017));
+  context.save();
+  context.font = `${size}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  context.textAlign = 'center';
+  context.textBaseline = 'top';
+  context.globalAlpha = 0.9;
+  context.fillStyle = Ink.crane;
+  context.fillText(text, Math.round(viewport.width / 2), Math.round(size * 0.6));
   context.restore();
 }

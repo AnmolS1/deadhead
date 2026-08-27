@@ -42,6 +42,7 @@ import {
 import { AudioEngine } from './audio/index.js';
 import { feelFor } from './feel/index.js';
 import { interpolatedEye } from './camera.js';
+import { applyPlaytestTuning } from './debug/playtest-tuning.js';
 import { getContext, resizeCanvas, type Viewport } from './canvas.js';
 import {
   InputBuffer,
@@ -98,6 +99,12 @@ const CHUNK_UNITS = 96;
 let lastEye: { x: number; y: number } = { x: 0, y: 0 };
 
 function start(canvas: HTMLCanvasElement, cityJson: CityJson | null): void {
+  // BEFORE `createWorld`, and before anything reads a tuning constant. Applied
+  // once per session, so within a session the sim still sees constants and its
+  // determinism guarantees hold. See `debug/playtest-tuning.ts` — this is
+  // playtest scaffolding with a removal note under `B-07`.
+  applyPlaytestTuning(location.search);
+
   const context = getContext(canvas);
   let viewport: Viewport = resizeCanvas(canvas) ?? {
     width: canvas.width,
