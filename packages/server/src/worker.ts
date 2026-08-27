@@ -32,6 +32,23 @@ export default {
       return health(env);
     }
 
+    // `B-04` fixture. The one route that proves the whole pipe: browser →
+    // site Worker → service binding → play Worker → Durable Object, with the
+    // `Upgrade` header surviving every hop. `M-01` replaces this with
+    // `/lobby/:code` and the echo goes with it.
+    //
+    // **The original `request` is forwarded, not rebuilt.** A reconstructed
+    // Request drops `Upgrade: websocket` and workerd then rejects the DO's 101
+    // with `TypeError: Worker tried to return a WebSocket in a response to a
+    // request which did not contain the header "Upgrade: websocket"`. Same rule
+    // as the site's proxy route, for the same reason, one hop further in.
+    if (path === '/ws') {
+      if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') {
+        return fail(426, 'upgrade_required');
+      }
+      return env.LOBBY.get(env.LOBBY.idFromName('b04-echo')).fetch(request);
+    }
+
     return fail(404, 'not_found', path);
   },
 } satisfies ExportedHandler<Env>;

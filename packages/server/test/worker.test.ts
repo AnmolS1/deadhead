@@ -100,3 +100,47 @@ describe('durable object namespaces', () => {
     expect(body.detail).toContain(task);
   });
 });
+
+describe('/ws — the B-04 pipe fixture', () => {
+  function upgrade(path: string): Promise<Response> {
+    return worker.fetch(
+      new Request(`http://play.test${path}`, { headers: { Upgrade: 'websocket' } }),
+    );
+  }
+
+  it('426s a plain GET, so a browser navigation gets a real answer', async () => {
+    const response = await get('/ws');
+    expect(response.status).toBe(426);
+    expect(((await response.json()) as { error: string }).error).toBe('upgrade_required');
+  });
+
+  it('completes the handshake and returns a client socket', async () => {
+    const response = await upgrade('/ws');
+    expect(response.status).toBe(101);
+    expect(response.webSocket).not.toBeNull();
+  });
+
+  it('upgrades through the site proxy prefix too', async () => {
+    const response = await upgrade('/play/api/ws');
+    expect(response.status).toBe(101);
+  });
+
+  it('echoes through the Durable Object, not the Worker', async () => {
+    const response = await upgrade('/ws');
+    const socket = response.webSocket;
+    if (!socket) throw new Error('no webSocket on the 101');
+    socket.accept();
+
+    const received = new Promise<string>((resolve) => {
+      socket.addEventListener('message', (event) => resolve(String(event.data)));
+    });
+    socket.send('ping');
+
+    // `echo:` is prefixed by `LobbyRoom.webSocketMessage`, which only runs
+    // because `ctx.acceptWebSocket` registered the DO as the hibernation
+    // handler. A Worker-level echo could not produce it, so this discriminates
+    // the hop that B-04 actually claims.
+    expect(await received).toBe('echo:ping');
+    socket.close();
+  });
+});
