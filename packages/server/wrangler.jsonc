@@ -39,6 +39,22 @@
   //    `npm -w @deadhead/server test` passes.
   "compatibility_date": "2026-08-18",
 
+  // **No public route, and that includes workers.dev.** `wrangler deploy` enables
+  // the `*.workers.dev` subdomain by DEFAULT, and the first deploy of this Worker
+  // duly published https://ponderance-play.discoinferno.workers.dev — a live,
+  // unauthenticated route straight to the game API, bypassing the site, its CSP,
+  // and the same-origin assumption the whole architecture rests on. Verified by
+  // curling it: 200, full binding report.
+  //
+  // That is harmless for a health endpoint and NOT harmless once B-06 mints run
+  // tokens and B-07 accepts submissions. This Worker must be reachable only
+  // through the site's PLAY service binding.
+  //
+  // `workers_dev: false` is the fix. Do not "fix" it by adding `routes` instead:
+  // wrangler-routes.sh in the site repo requires exactly two, and a route here
+  // would be a third public door rather than none.
+  "workers_dev": false,
+
   "observability": { "enabled": true },
 
   // Durable Object class lifecycle, declared with the **`exports` map**.
@@ -89,6 +105,16 @@
     },
   ],
 
-  // Same placeholder story: `wrangler kv namespace create RATE_LIMIT`.
-  "kv_namespaces": [{ "binding": "RATE_LIMIT", "id": "0000000000000000000000000000000000" }],
+  // Real namespace, created 2026-08-27. Its TITLE is `deadhead-kv`, which appears
+  // nowhere in this file — a KV binding is matched by id alone, so the only way
+  // to tell which namespace this is from the config is this comment. Keep it.
+  // (Created from a config-free directory on purpose: run inside a workspace,
+  // `kv namespace create` prefixes the title with the Worker name and you get
+  // `ponderance-play-RATE_LIMIT` instead of the estate's `<project>-kv` shape.)
+  //
+  // Used by B-07 for per-user and per-IP submission rate limits, and by B-06 to
+  // hold single-use run tokens with a TTL. Distinct from the SITE's own
+  // RATE_LIMIT namespace (2b67b00d…), which serves /api/inquiry — same binding
+  // name, different Worker, different namespace. Do not merge them.
+  "kv_namespaces": [{ "binding": "RATE_LIMIT", "id": "7ac995c09cff4bf9aebbfdb705f03c1c" }],
 }
