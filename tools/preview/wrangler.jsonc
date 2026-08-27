@@ -27,8 +27,8 @@
 
   "assets": {
     "directory": "../../packages/client/dist-app",
-    "not_found_handling": "single-page-application"
+    "not_found_handling": "single-page-application",
   },
 
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
 }
