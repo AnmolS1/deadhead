@@ -101,6 +101,8 @@ export const TUNING_UNITS: Record<TuningKey, Unit> = {
   drag: Unit.Fraction,
   lateralSlide: Unit.Fraction,
   handbrakeSlide: Unit.Fraction,
+  /** A multiplier on `steerRate`, so dimensionless — not a rate itself. */
+  handbrakeYaw: Unit.Scalar,
   steerRate: Unit.Scalar,
   steerFalloffSpeed: Unit.PerSecond,
   maxSpeed: Unit.PerSecond,

@@ -90,14 +90,30 @@ export const CarTuning = {
   /** Lateral survival while the handbrake is down. Higher means a longer slide. */
   handbrakeSlide: fxFromRatio(960, 1000),
 
+  /**
+   * Steering multiplier while the handbrake is down. **This is what makes the
+   * handbrake a cornering tool** (ADR 0008).
+   *
+   * Before it existed the handbrake had no yaw authority at all: it raised
+   * `lateralSlide` and nothing else, so it preserved sideways momentum without
+   * ever rotating the car. Measured, it bought +3.6% heading rate and 2.6 u/s
+   * of illegal overspeed — a wider arc and a shove forward, which is the
+   * opposite of a drift.
+   *
+   * 2.3x takes the top-speed turn radius from ~28 units on grip to ~12, which
+   * fits City 01's 25-unit median block. Grip alone deliberately does NOT fit
+   * it: at top speed you brake or you drift, and that is the skill.
+   */
+  handbrakeYaw: fxFromRatio(23, 10),
+
   /** Steering rate at low speed, turn units per tick. */
-  steerRate: fxFromInt(360),
+  steerRate: fxFromInt(450),
 
   /**
    * Speed at which steering authority has fallen to half, units/tick.
    * Keeps the car from spinning on the spot at speed.
    */
-  steerFalloffSpeed: fxFromRatio(18, 30),
+  steerFalloffSpeed: fxFromRatio(6, 30),
 
   /** Hard cap on speed, units/tick. */
   maxSpeed: fxFromRatio(30, 30),
@@ -163,7 +179,13 @@ export function stepCar(world: World, slot: number): void {
     // rate = steerRate * speed / (speed + falloff): near-full authority well
     // above the falloff constant, and zero at rest.
     const authority = fxDiv(speed, speed + CarTuning.steerFalloffSpeed);
-    const rate = fxMul(CarTuning.steerRate, authority) >> 16;
+    // The handbrake multiplies yaw. Without this the handbrake could only ever
+    // widen a turn (ADR 0008) — it preserved lateral momentum but never rotated
+    // the car, so there was no way to corner at speed with or without it.
+    const yaw = hasInput(input, Input.Handbrake)
+      ? fxMul(CarTuning.steerRate, CarTuning.handbrakeYaw)
+      : CarTuning.steerRate;
+    const rate = fxMul(yaw, authority) >> 16;
     // Reversing steers the other way, as it does in a real car.
     const direction = alongOld < 0 ? -steer : steer;
     newHeading = (heading + direction * rate) & 0xffff;
@@ -204,6 +226,25 @@ export function stepCar(world: World, slot: number): void {
 
   if (forward > CarTuning.maxSpeed) forward = CarTuning.maxSpeed;
   if (forward < -CarTuning.maxReverseSpeed) forward = -CarTuning.maxReverseSpeed;
+
+  // **Clamp the SPEED, not just the forward component** (ADR 0008).
+  //
+  // The clamp above bounds one axis. Preserved lateral velocity is added on top
+  // of it, so `hypot(forward, lateral)` could exceed `maxSpeed` — measured at
+  // 32.61 against a 30 u/s cap, which is what a player reads as the handbrake
+  // shoving the car forward. `carSpeedFraction` clamps its own result to [0, 1],
+  // which is why nothing else ever noticed.
+  //
+  // Scaling both components preserves direction, so a drift still points where
+  // it pointed — it just costs speed. **That cost is the point.** It is what
+  // stops the handbrake being a free accelerator and the optimal line being
+  // "hold it down forever".
+  const speedNow = fxSqrt(fxMul(forward, forward) + fxMul(lateral, lateral));
+  if (speedNow > CarTuning.maxSpeed) {
+    const scale = fxDiv(CarTuning.maxSpeed, speedNow);
+    forward = fxMul(forward, scale);
+    lateral = fxMul(lateral, scale);
+  }
 
   // Snap to rest rather than letting a truncating multiply leave the car
   // creeping forever at one unit per tick.

@@ -36,3 +36,5 @@ packages/sim/src/__purity_probe_*.ts
 
 # Playwright MCP scratch output from browser-driven verification.
 .playwright-mcp/
+
+notes.md

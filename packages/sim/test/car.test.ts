@@ -205,18 +205,39 @@ describe('drift', () => {
     expect(flaggedWhileSliding).toBeGreaterThan(30);
   });
 
-  it('lets a drift carry the car past its forward speed cap', () => {
-    // Documented rather than clamped. maxSpeed bounds the forward component;
-    // total speed is the hypotenuse, so a big slide is worth a little extra
-    // ground speed. That is a standard arcade-racer trade and C-08 gets to
-    // decide whether it stays. It is flagged here so nobody "fixes" it by
-    // accident, and so nobody is surprised when players find it.
+  it('never lets a drift carry the car past the speed cap', () => {
+    // INVERTED 2026-08-27 by ADR 0008, deliberately and not by accident — the
+    // previous version asserted the OPPOSITE and said so:
+    //
+    //   "Documented rather than clamped. […] That is a standard arcade-racer
+    //    trade and C-08 gets to decide whether it stays. It is flagged here so
+    //    nobody 'fixes' it by accident."
+    //
+    // C-08 decided. The evidence was the first playtest: the overspeed was read
+    // as the handbrake malfunctioning ("the car just jumps forward a bit
+    // extra"), not as a reward. And the same ADR gives the handbrake real yaw
+    // authority — which removes the bonus's justification entirely, because a
+    // handbrake that corners better AND goes faster is strictly dominant and the
+    // optimal line becomes "hold it down forever".
+    //
+    // The cap is now on total speed, so a hard drift COSTS speed. That price is
+    // what makes the handbrake a trade.
     const drifting = drive(
       (t) => (t < 100 ? THROTTLE : packInput(Input.Throttle, Input.Right, Input.Handbrake)),
       180,
     );
-    expect(carSpeed(drifting, 0)).toBeGreaterThan(CarTuning.maxSpeed);
-    expect(carSpeed(drifting, 0)).toBeLessThan(CarTuning.maxSpeed * 2);
+    expect(carSpeed(drifting, 0)).toBeLessThanOrEqual(CarTuning.maxSpeed);
+  });
+
+  it('still slides — the cap prices the drift, it does not remove it', () => {
+    // The clamp must not turn the handbrake into a brake. If this fails, the
+    // drift mechanic has been clamped out of existence rather than costed.
+    const drifting = drive(
+      (t) => (t < 100 ? THROTTLE : packInput(Input.Throttle, Input.Right, Input.Handbrake)),
+      180,
+    );
+    expect((getCar(drifting, 0, Car.Flags) & CarFlags.Drifting) !== 0).toBe(true);
+    expect(carSpeed(drifting, 0)).toBeGreaterThan(CarTuning.maxSpeed / 2);
   });
 });
 
