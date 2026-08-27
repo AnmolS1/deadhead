@@ -34,6 +34,7 @@
  * is chopped up.
  */
 import { Car, FX_ONE, TURN, carSpeedFraction, getCar, type World } from '@deadhead/sim';
+import { lerpPose, shouldInterpolate } from './render/interp.js';
 
 const TAU_RADIANS = Math.PI * 2;
 
@@ -214,6 +215,48 @@ export function cameraTargetFromCar(world: World, slot: number): CameraTarget {
     heading: ((getCar(world, slot, Car.Heading) & 0xffff) / TURN) * TAU_RADIANS,
     speedFraction: carSpeedFraction(world, slot) / FX_ONE,
   };
+}
+
+/**
+ * The interpolated pose to point the camera at, for one rendered frame.
+ *
+ * **Use this, not {@link cameraTargetFromCar}, for anything on screen.** The
+ * comment above says to prefer `C-05`'s interpolated pose "until `C-05`
+ * exists"; `C-05` shipped and the app shell was never moved over, so the cab
+ * was drawn at 60 Hz through `poseOf` inside a viewport that stepped at
+ * `TICK_HZ`. The cab then juddered against the centre of the screen by up to
+ * one tick of travel — a whole world unit at top speed, and worse the faster
+ * you go, which is exactly when it gets reported.
+ *
+ * Both halves were individually correct. Nothing tied them together. That is
+ * the same shape as the quarter-turn rotation bug in `HANDOFF.md`'s table, and
+ * it is why this lives here with a test rather than inline in `main.ts`.
+ *
+ * `shouldInterpolate` guards the teleport case, so a respawn snaps instead of
+ * sliding the camera across the city.
+ */
+export function interpolatedEye(
+  previous: World,
+  current: World,
+  slot: number,
+  alpha: number,
+): { x: number; y: number } {
+  const before = {
+    x: getCar(previous, slot, Car.X),
+    y: getCar(previous, slot, Car.Y),
+    heading: getCar(previous, slot, Car.Heading),
+  };
+  const after = {
+    x: getCar(current, slot, Car.X),
+    y: getCar(current, slot, Car.Y),
+    heading: getCar(current, slot, Car.Heading),
+  };
+
+  if (!shouldInterpolate(before, after)) {
+    return { x: after.x / FX_ONE, y: after.y / FX_ONE };
+  }
+  const pose = lerpPose(before, after, alpha);
+  return { x: pose.x, y: pose.y };
 }
 
 /**

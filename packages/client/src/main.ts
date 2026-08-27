@@ -38,6 +38,7 @@ import {
 
 import { AudioEngine } from './audio/index.js';
 import { feelFor } from './feel/index.js';
+import { interpolatedEye } from './camera.js';
 import { getContext, resizeCanvas, type Viewport } from './canvas.js';
 import {
   InputBuffer,
@@ -84,6 +85,13 @@ function scaleOverride(): number {
 
 /** Side of one pre-rendered ground chunk, in world units. */
 const CHUNK_UNITS = 96;
+
+/**
+ * Where the camera was placed on the last frame. Dev-only, and the only way to
+ * observe that the camera interpolates: the sim position steps at `TICK_HZ`, so
+ * reading it tells you nothing about what was drawn.
+ */
+let lastEye: { x: number; y: number } = { x: 0, y: 0 };
 
 function start(canvas: HTMLCanvasElement, cityJson: CityJson | null): void {
   const context = getContext(canvas);
@@ -180,6 +188,28 @@ function start(canvas: HTMLCanvasElement, cityJson: CityJson | null): void {
       audio,
       mix: () => audio.lastMix,
       world: () => session.current,
+      eye: () => lastEye,
+      /** Decoded cab state. Raw `world.data` needs the header offset and the
+       *  car stride, and getting either wrong yields plausible-looking
+       *  nonsense — which is worse than an error. */
+      car: () => {
+        const w = session.current;
+        const vx = getCar(w, 0, Car.VelocityX) / FX_ONE;
+        const vy = getCar(w, 0, Car.VelocityY) / FX_ONE;
+        return {
+          x: getCar(w, 0, Car.X) / FX_ONE,
+          y: getCar(w, 0, Car.Y) / FX_ONE,
+          headingTurn: getCar(w, 0, Car.Heading),
+          headingDeg: (getCar(w, 0, Car.Heading) / 65536) * 360,
+          vx,
+          vy,
+          speedPerTick: Math.hypot(vx, vy),
+          speedPerSecond: Math.hypot(vx, vy) * 30,
+          flags: getCar(w, 0, Car.Flags),
+          drifting: (getCar(w, 0, Car.Flags) & CarFlags.Drifting) !== 0,
+          lastInput: getCar(w, 0, Car.LastInput),
+        };
+      },
       /**
        * Set the deadhead bank to a fraction of full, so the fold can be seen at
        * any point in a run without waiting three minutes for it. `C-08` is
@@ -294,8 +324,12 @@ function render(
   session: Session,
   alpha: number,
 ): void {
-  const x = getCar(session.current, 0, Car.X) / FX_ONE;
-  const y = getCar(session.current, 0, Car.Y) / FX_ONE;
+  // The camera follows the INTERPOLATED cab, not the last completed tick —
+  // see `interpolatedEye`, which carries the whole explanation and the test.
+  const eye = interpolatedEye(session.previous, session.current, 0, alpha);
+  const x = eye.x;
+  const y = eye.y;
+  lastEye = eye;
 
   const view: ViewportState = {
     x,
@@ -376,7 +410,24 @@ if (canvas === null) throw new Error('no #game canvas on the page');
  * origin, so the city ships as an asset beside the game rather than being
  * fetched from anywhere.
  */
-void fetch(new URL('../assets/cities/01.json', import.meta.url))
-  .then((response) => (response.ok ? (response.json() as Promise<CityJson>) : null))
-  .catch(() => null)
-  .then((city) => start(canvas, city));
+/**
+ * `?city=none` — start with no city at all.
+ *
+ * A dev affordance in the same family as `?scale=`. Measuring the car model in
+ * City 01 measures the car model *and the buildings*: a run at top speed ends
+ * against a wall within a couple of seconds, so speed and heading readings are
+ * really collision readings. `createWorld` already accepts `emptyCity()`, so a
+ * blank field costs one branch and makes handling observable in isolation.
+ *
+ * Anmol asked for this while `S-06`'s turn radius was being measured, and it
+ * immediately changed the numbers — see the note in `TASKS.md`.
+ */
+const blankCity = new URLSearchParams(location.search).get('city') === 'none';
+
+void (
+  blankCity
+    ? Promise.resolve(null)
+    : fetch(new URL('../assets/cities/01.json', import.meta.url))
+        .then((response) => (response.ok ? (response.json() as Promise<CityJson>) : null))
+        .catch(() => null)
+).then((city) => start(canvas, city));

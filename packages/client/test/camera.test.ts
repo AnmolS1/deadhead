@@ -6,6 +6,7 @@ import {
   TURN,
   createWorld,
   emptyCity,
+  fxFromInt,
   hashWorld,
   setCar,
   step,
@@ -17,6 +18,7 @@ import {
   CameraTuning,
   ROTATION_STORAGE_KEY,
   cameraTargetFromCar,
+  interpolatedEye,
   type CameraStorage,
   type CameraTarget,
 } from '../src/camera.js';
@@ -701,5 +703,46 @@ describe('the sim never sees the camera', () => {
     expect(pose.heading).toBeCloseTo(Math.PI / 4, 9);
     expect(pose.speedFraction).toBeGreaterThan(0);
     expect(pose.speedFraction).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('interpolatedEye — the camera follows the drawn cab, not the ticked one', () => {
+  function worldWithCarAt(x: number, y: number): World {
+    const w = createWorld(1, 1, emptyCity());
+    setCar(w, 0, Car.X, fxFromInt(x));
+    setCar(w, 0, Car.Y, fxFromInt(y));
+    return w;
+  }
+
+  it('lands halfway between two ticks at alpha 0.5', () => {
+    // THE regression test. `scene.ts` draws the cab through `poseOf(previous,
+    // current, alpha)` at display rate; the camera used to read `current` raw,
+    // which steps at TICK_HZ. The cab was therefore drawn smoothly inside a
+    // viewport that jumped 30 times a second and juddered against the centre of
+    // the screen by up to one tick of travel — a whole world unit at top speed.
+    const eye = interpolatedEye(worldWithCarAt(10, 20), worldWithCarAt(12, 20), 0, 0.5);
+    expect(eye.x).toBeCloseTo(11, 5);
+    expect(eye.y).toBeCloseTo(20, 5);
+  });
+
+  it('is continuous across the whole alpha range', () => {
+    const previous = worldWithCarAt(0, 0);
+    const current = worldWithCarAt(1, 0);
+    let last = -Infinity;
+    for (let a = 0; a < 1; a += 0.1) {
+      const { x } = interpolatedEye(previous, current, 0, a);
+      expect(x).toBeGreaterThanOrEqual(last);
+      last = x;
+    }
+    expect(interpolatedEye(previous, current, 0, 0).x).toBeCloseTo(0, 5);
+  });
+
+  it('snaps rather than sliding across the city on a teleport', () => {
+    // A respawn (`G-01`) moves the cab a long way in one tick. Interpolating
+    // that would sweep the camera over the whole map in a single frame, which
+    // is far more jarring than the snap it replaces.
+    const eye = interpolatedEye(worldWithCarAt(0, 0), worldWithCarAt(400, 400), 0, 0.5);
+    expect(eye.x).toBeCloseTo(400, 5);
+    expect(eye.y).toBeCloseTo(400, 5);
   });
 });
