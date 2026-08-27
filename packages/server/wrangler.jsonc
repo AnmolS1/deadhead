@@ -112,8 +112,15 @@
   // `kv namespace create` prefixes the title with the Worker name and you get
   // `ponderance-play-RATE_LIMIT` instead of the estate's `<project>-kv` shape.)
   //
-  // Used by B-07 for per-user and per-IP submission rate limits, and by B-06 to
-  // hold single-use run tokens with a TTL. Distinct from the SITE's own
+  // **One namespace, two purposes, and the binding name only describes one.**
+  // B-07 uses it for per-user and per-IP submission rate limits; B-06 stores
+  // single-use run tokens in it with a TTL. That is deliberate rather than
+  // sloppy — KV is a keyspace and a second namespace would buy nothing — but it
+  // means keys MUST be prefixed by purpose (`rl:` / `run:`) so the two cannot
+  // collide, and so a purge of one does not take the other. Do not rename the
+  // binding to suit whichever task you are in; rename nothing, prefix keys.
+  //
+  // Distinct from the SITE's own
   // RATE_LIMIT namespace (2b67b00d…), which serves /api/inquiry — same binding
   // name, different Worker, different namespace. Do not merge them.
   "kv_namespaces": [{ "binding": "RATE_LIMIT", "id": "7ac995c09cff4bf9aebbfdb705f03c1c" }],
