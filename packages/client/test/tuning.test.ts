@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { CarTuning, TICK_HZ } from '@deadhead/sim';
+import { FX_ONE, CarTuning, TICK_HZ } from '@deadhead/sim';
 
 import {
   TUNING_KEYS,
@@ -138,8 +138,13 @@ describe('units', () => {
   });
 
   it('converts a per-second rate through the tick rate', () => {
-    // maxSpeed is authored as 30 units/s at 30 Hz, so one unit per tick.
-    expect(toDisplay('maxSpeed', CarTuning.maxSpeed)).toBeCloseTo(TICK_HZ, 2);
+    // Asserts the CONVERSION, not a particular speed. The old version pinned
+    // this to TICK_HZ because maxSpeed happened to be 30 units/s — so a routine
+    // tuning change broke a test about unit conversion, which is a test
+    // measuring the wrong thing. `maxSpeed` is stored per tick, so its display
+    // value is that times the tick rate, whatever the tuning says today.
+    const perTick = CarTuning.maxSpeed / FX_ONE;
+    expect(toDisplay('maxSpeed', CarTuning.maxSpeed)).toBeCloseTo(perTick * TICK_HZ, 2);
   });
 
   it('converts an acceleration through the tick rate squared', () => {

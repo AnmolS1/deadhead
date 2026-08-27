@@ -132,12 +132,21 @@ describe('steering', () => {
   });
 
   it('steers the other way in reverse, as a real car does', () => {
-    const forward = drive(() => packInput(Input.Throttle, Input.Right), 90);
-    const reversing = drive(() => packInput(Input.Brake, Input.Right), 90);
+    // 30 ticks, not 90. At 90 the cab now turns 244 degrees under the tuned
+    // steer rate, and the normalisation below folds that past 180 into a
+    // NEGATIVE angle — so the test failed reporting a sign flip when the only
+    // thing that had happened was a wrap. The window has to be short enough
+    // that neither direction can exceed half a turn, and the guard below makes
+    // that a checked property rather than a hope.
+    const forward = drive(() => packInput(Input.Throttle, Input.Right), 30);
+    const reversing = drive(() => packInput(Input.Brake, Input.Right), 30);
 
     // Forward-right turns one way; reverse-right turns the other.
     const forwardTurn = ((getCar(forward, 0, Car.Heading) + TURN / 2) & 0xffff) - TURN / 2;
     const reverseTurn = ((getCar(reversing, 0, Car.Heading) + TURN / 2) & 0xffff) - TURN / 2;
+    // Neither may have wrapped, or the signs below mean nothing.
+    expect(Math.abs(forwardTurn)).toBeLessThan(TURN / 2);
+    expect(Math.abs(reverseTurn)).toBeLessThan(TURN / 2);
     expect(Math.sign(forwardTurn)).toBe(-Math.sign(reverseTurn));
   });
 

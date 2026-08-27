@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { EdgeFlags, emptyCityJson, type CityJson } from '@deadhead/proto';
+import { CarTuning, FareTuning, FX_ONE } from '@deadhead/sim';
 
 import {
   audit,
@@ -120,11 +121,15 @@ describe('points somewhere impossible', () => {
 
   it('derives the reach from the sim rather than inventing a number', () => {
     // The defect this replaced. The first version allowed a flat 12 units,
-    // described as "half the widest carriageway plus a pavement". On a standard
-    // 8-wide road a cab's centre reaches 3.5 from the centreline and collects
-    // within FareTuning.pickupRadius (3), so the true figure is 6.5 — and a
-    // spawn 10 units out passed the audit while being impossible to pick up.
-    expect(reachFromCentreline(8, 'spawn')).toBeCloseTo(6.5, 6);
+    // described as "half the widest carriageway plus a pavement", and a spawn
+    // 10 units out passed the audit while being impossible to pick up.
+    //
+    // DERIVED, not restated. This test previously asserted the literal 6.5 —
+    // while its own name says it derives the reach from the sim — so raising
+    // `pickupRadius` for the playtest broke it. A test that hardcodes the
+    // number it claims to derive is testing nothing about the derivation.
+    const expected = 8 / 2 - CarTuning.halfWidth / FX_ONE + FareTuning.pickupRadius / FX_ONE;
+    expect(reachFromCentreline(8, 'spawn')).toBeCloseTo(expected, 6);
     // Dropoff is more forgiving than pickup, so destinations reach further.
     expect(reachFromCentreline(8, 'destination')).toBeGreaterThan(reachFromCentreline(8, 'spawn'));
     // A wider carriageway lets the cab get further off the centreline.
@@ -132,7 +137,8 @@ describe('points somewhere impossible', () => {
   });
 
   it('rejects the spawn that the old flat limit would have passed', () => {
-    // 10 units from an 8-wide road: inside the old 12, outside the real 6.5.
+    // 10 units from an 8-wide road: inside the old flat 12, outside the derived
+    // reach even after the playtest widened `pickupRadius`.
     const city = squareCity({ spawns: [{ x: 100, y: 10 }] });
     expect(rules(city)).toContain('no-road-access');
   });

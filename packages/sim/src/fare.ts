@@ -56,10 +56,23 @@ const POINT_WORDS = 4;
 
 export const FareTuning = {
   /** How close a cab must be to collect someone, in 16.16 units. */
-  pickupRadius: fxFromRatio(3, 1),
+  pickupRadius: fxFromRatio(9, 2),
 
-  /** How close to the destination a cab must be to drop off, in 16.16 units. */
-  dropoffRadius: fxFromRatio(4, 1),
+  /**
+   * How close to the destination a cab must be to drop off, in 16.16 units.
+   *
+   * **Kept larger than `pickupRadius`, and that relationship is the point.**
+   * Both actions require a near-stop, so if dropping off were the tighter of
+   * the two it would be the fiddly half of every fare — and a player who has
+   * already done the work of collecting someone and driving them across town
+   * should not then lose the fare to a parking manoeuvre.
+   *
+   * Raised 4 → 6 on 2026-08-27 alongside `pickupRadius` 3 → 4.5. Anmol asked
+   * only for the pickup change; leaving this at 4 would have inverted the
+   * relationship (pickup 4.5 > dropoff 4) as a silent side effect. The 1.33x
+   * ratio is preserved rather than invented.
+   */
+  dropoffRadius: fxFromRatio(6, 1),
 
   /**
    * Speed below which a cab counts as stopped, in units per tick.
@@ -90,7 +103,7 @@ export const FareTuning = {
    * itself and making routes repetitive. Something in the 500–650 range keeps
    * variety while cutting the tail. The playtest picks it.
    */
-  maxFareUnits: 0,
+  maxFareUnits: 600,
 
   /** What a `Meter` fare is worth the instant it starts, in minor units. */
   meterBase: 200,

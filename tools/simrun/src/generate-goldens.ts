@@ -63,7 +63,13 @@ const SCRIPTS: Record<string, Script> = {
   },
   bail: {
     seed: 0x0f2a,
-    ticks: 6_000,
+    // 12_000, raised from 6_000 on 2026-08-27. The set needs two bails and this
+    // scenario is the only one that produces any now: the 1.35x speed and the
+    // 4.5-unit pickup radius mean the bot reaches passengers before their
+    // patience runs out, so `endurance` — which used to supply the rest — no
+    // longer bails at all. Each bail cycle costs one meterPatience (75 s) plus
+    // travel, so 200 s fitted one and 400 s fits several.
+    ticks: 12_000,
     note: 'collects a Meter passenger and then refuses to move, so their patience runs out',
     at: (world, _tick, city) => {
       // Stop the moment a Meter passenger is aboard. A fixed cutoff tick does
@@ -83,8 +89,14 @@ const SCRIPTS: Record<string, Script> = {
   },
   endurance: {
     seed: 3,
-    ticks: 10_000,
-    note: 'ten thousand ticks of real play, through crash, deliveries and elimination',
+    // 16_000, raised from 10_000 on 2026-08-27, because the run got LONGER
+    // rather than the scenario getting weaker. Measured with the new tuning:
+    // the bot carries a passenger 63% of the time, and the deadhead bank only
+    // drains while empty — so 180 s of bank stretches to ~490 s of wall clock
+    // and elimination lands around tick 14_700. At 10_000 the scenario simply
+    // stopped before the thing it exists to cover.
+    ticks: 16_000,
+    note: 'sixteen thousand ticks of real play, through crash, deliveries and elimination',
     at: (world, _tick, city) => botInput(world, city),
   },
 };

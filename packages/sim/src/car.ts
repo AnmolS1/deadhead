@@ -107,7 +107,7 @@ export const CarTuning = {
   handbrakeYaw: fxFromRatio(23, 10),
 
   /** Steering rate at low speed, turn units per tick. */
-  steerRate: fxFromInt(450),
+  steerRate: fxFromRatio(1215, 2),
 
   /**
    * Speed at which steering authority has fallen to half, units/tick.
@@ -116,7 +116,7 @@ export const CarTuning = {
   steerFalloffSpeed: fxFromRatio(6, 30),
 
   /** Hard cap on speed, units/tick. */
-  maxSpeed: fxFromRatio(30, 30),
+  maxSpeed: fxFromRatio(405, 300),
 
   /** Hard cap on reverse speed, units/tick. */
   maxReverseSpeed: fxFromRatio(9, 30),

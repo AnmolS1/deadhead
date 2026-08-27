@@ -125,6 +125,20 @@ const DIALS: readonly Dial[] = [
     },
   },
   {
+    // Not in the notes, but raised alongside `pickup` so the invariant
+    // "dropping off is more forgiving than picking up" survives — both require
+    // a near-stop, and a tighter dropoff would make the end of every fare the
+    // fiddly part. On the dial so that relationship can be tested rather than
+    // assumed.
+    param: 'dropoff',
+    min: Number.EPSILON,
+    label: 'dropoff r',
+    apply: (units) => {
+      fare.dropoffRadius = fxFromRatio(Math.round(units * 100), 100);
+      return `${units.toFixed(2)} u`;
+    },
+  },
+  {
     // Note 3, in whole world units. See `FareTuning.maxFareUnits` for why a
     // hard 15-second cap (~346 units) is the wrong shape: it discards 77% of
     // City 01's destination pairs and leaves a median of 4 per spawn.

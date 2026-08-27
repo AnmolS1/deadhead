@@ -66,7 +66,26 @@ export const PassengerTuning = {
   spawnIntervalTicks: Math.round(TICK_HZ * 1.5),
 
   /** Cap on passengers waiting at once. Bounded by the world layout regardless. */
-  maxWaiting: 24,
+  maxWaiting: 32,
+
+  /**
+   * Weight a spawn point carries when demand there is **zero**.
+   *
+   * The floor that keeps a cold district *unlikely rather than impossible*.
+   * `demandAt` returns 0 outside every anchor radius, and `PEAK_WEIGHT` is 256
+   * — so at the old hardcoded floor of **1** a cold point was 1/257 as likely as
+   * a hot one, which over a 180 s run is not "unlikely", it is never.
+   *
+   * Measured on City 01 with the cab parked at the centre: at a floor of 1,
+   * **only 12 of 20 spawn points produced a passenger in a whole run**, heavily
+   * concentrated on six. Anmol's third playtest reported exactly that — "it's
+   * hard to find the next one, they seem to be in the same place every time".
+   *
+   * This does not flatten the demand field: a hot point is still several times
+   * likelier, so chasing demand still pays. It stops eight of the city's twenty
+   * kerbs from being dead ground.
+   */
+  coldSpawnWeight: 40,
 
   /** How long a `Meter` passenger tolerates being ignored, and then being driven around. */
   meterPatienceTicks: 75 * TICK_HZ,
@@ -421,5 +440,5 @@ function weightOfSpawn(city: RuntimeCity, tick: number, index: number): number {
   const base = index * POINT_WORDS;
   const x = fxFloorToInt(spawns[base] as number);
   const y = fxFloorToInt(spawns[base + 1] as number);
-  return 1 + demandAt(city, tick, x, y);
+  return PassengerTuning.coldSpawnWeight + demandAt(city, tick, x, y);
 }

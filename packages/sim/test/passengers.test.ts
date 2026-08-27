@@ -295,8 +295,21 @@ describe('spawning', () => {
     // Nobody is picking anyone up, so the city saturates. That is correct — a
     // street fills if you ignore it — but it must not exceed the cap.
     const world = run(createWorld(5, 1, twoDistrictCity()), 6_000);
-    expect(passengerCount(world)).toBeLessThanOrEqual(PassengerTuning.maxWaiting);
-    expect(passengerCount(world)).toBeGreaterThan(0);
+
+    // Counts WAITING passengers, which is what the cap actually governs —
+    // `trySpawn` tests `waiting >= maxWaiting`. The old version counted every
+    // active passenger and so included anyone aboard, which made it read one
+    // over the cap as soon as the parked cab collected somebody. It passed
+    // before only because nobody ever spawned within the smaller pickup radius
+    // of the origin; the wider radius exposed it.
+    let waiting = 0;
+    for (let slot = 0; slot < 64; slot += 1) {
+      if (!isPassengerActive(world, slot)) continue;
+      if (getPassenger(world, slot, Passenger.Carrier) !== NO_CARRIER) continue;
+      waiting += 1;
+    }
+    expect(waiting).toBeLessThanOrEqual(PassengerTuning.maxWaiting);
+    expect(waiting).toBeGreaterThan(0);
   });
 
   it('does nothing without a city, or without spawn points', () => {
@@ -498,17 +511,25 @@ describe('FareTuning.maxFareUnits — the fare-distance cap', () => {
     (FareTuning as { maxFareUnits: number }).maxFareUnits = original;
   });
 
-  it('is OFF by default, which is what keeps the goldens valid', () => {
-    // The whole safety property. At 0 the destination is drawn with the same
-    // single rngNextBelow call it always was, so adding this constant changed
-    // no recorded replay. If this ever fails, every golden is suspect.
-    expect(FareTuning.maxFareUnits).toBe(0);
+  it('is ON, at the value the 2026-08-27 playtest chose', () => {
+    // Was 0 when this constant was introduced, so that adding it changed no
+    // recorded replay. The playtest then adopted 600 (~20 s), and the goldens
+    // were regenerated in the same commit. Pinned because it is a balance
+    // decision — 600 keeps variety while cutting the tail, where the 15 s cap
+    // the note originally asked for would have discarded 77% of City 01's
+    // spawn x destination pairs.
+    expect(FareTuning.maxFareUnits).toBe(600);
   });
 
-  it('reaches the far destinations when uncapped', () => {
+  it('at 0 it is genuinely off — the escape hatch still works', () => {
+    // The mechanism that made adopting this safe: at 0 the destination is drawn
+    // with the same single rngNextBelow call it always was. Kept as a test so
+    // the uncapped path cannot rot now that it is no longer the default.
+    (FareTuning as { maxFareUnits: number }).maxFareUnits = 0;
     const seen = new Set(assigned(nearAndFarCity()));
-    // Baseline: without a cap, distant destinations are chosen. Without this
-    // the capped test below could pass because nothing ever spawned.
+    // Without a cap the distant destinations are reachable. This is also the
+    // baseline the capped test needs: without it, that test could pass because
+    // nothing ever spawned at all.
     expect(seen.size).toBeGreaterThan(1);
   });
 
